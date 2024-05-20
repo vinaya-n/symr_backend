@@ -13,7 +13,8 @@ build:
       value: "example"
 run:
   runtime-version: 3.11.9
-  command: pipenv run gunicorn symr.wsgi --log-file -
+  #command: pipenv run gunicorn symr.wsgi --log-file -
+  command: python manage.py
   network: 
     port: 8000
     env: MY_APP_PORT  
