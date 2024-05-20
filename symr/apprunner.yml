@@ -1,5 +1,6 @@
 version: 1.0
 runtime: python3 
+image: aws.amazon.com/aws-apprunner/python3.8
 build:
   commands:    
     build:        

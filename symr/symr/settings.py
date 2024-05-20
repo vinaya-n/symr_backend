@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-ath+sm4)$$9^%3syyl-kje$y29h&d1lv^6@-5e%qd$ygy@1s)x
 DEBUG = True
 
 #ALLOWED_HOSTS = ['*']
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'django-env.eba-vwmngpsf.us-west-2.elasticbeanstalk.com']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'django-env.eba-vwmngpsf.us-west-2.elasticbeanstalk.com', '172.31.36.145', ]
 
 
 # Application definition
@@ -45,6 +45,18 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',    
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',    
+    
+]
+
+MIDDLEWARE_CLASSES = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',    
@@ -79,12 +91,13 @@ WSGI_APPLICATION = 'symr.wsgi.application'
 #CORS_ORIGIN_ALLOW_ALL = False
 CORS_ORIGIN_ALLOW_ALL = True
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:8000",
-]
+# CORS_ALLOWED_ORIGINS = [
+    # "http://localhost:3000",
+    # "http://localhost:8000",
+    # "http://127.0.0.1:3000",
+    # "http://127.0.0.1:8000",
+    # "https://p7222b191f.execute-api.us-west-2.amazonaws.com",
+# ]
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -98,16 +111,18 @@ CORS_ALLOW_HEADERS = [
     'cookie',
 ]
 #CORS_ALLOW_CREDENTIALS = True  # Allow credentials
-CORS_ORIGIN_WHITELIST = (
-    'http://localhost:3000',
-    'http://localhost:8000',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:8000',
-)
+# CORS_ORIGIN_WHITELIST = (
+    # 'http://localhost:3000',
+    # 'http://localhost:8000',
+    # 'http://127.0.0.1:3000',
+    # 'http://127.0.0.1:8000',
+    # "https://p7222b191f.execute-api.us-west-2.amazonaws.com",
+#)
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://p7222b191f.execute-api.us-west-2.amazonaws.com",
 ]
 CSRF_HEADER_NAME = "HTTP_X_CSRFTOKEN"
 CSRF_COOKIE_NAME = "csrftoken"

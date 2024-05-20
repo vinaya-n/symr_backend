@@ -20,7 +20,7 @@ def test_cookie(request):
         print("All cookies:", all_cookies)
         return HttpResponse("Your favorite team is {}".format(request.COOKIES['team']))
 
-
+@csrf_exempt
 def get_csrf_token(request):
     if not request.COOKIES.get('custom_csrf_token'):
         csrf_token = get_token(request)
@@ -151,6 +151,8 @@ def commonResults(request):
 
         section = form1Data.get('section', '')  #Section
         section = '' if section is None or section == '' else section
+
+        print("section is "+section)
         
         #Calculate the common results and save it in variables
         slack = M1-(M2+M3+M4)
@@ -224,6 +226,8 @@ def commonResults(request):
             val = 0
             BR3 = 0
             BR4 = 0
+            SME = 0
+            ES = 0
 
             
             
@@ -236,7 +240,9 @@ def commonResults(request):
             pv = H1           #present value
             fv = 0            #future value (residual value)
             
-            
+            print("H1 " + format(H1))
+            print("H8 " + format(H8))
+            print("H9 " + format(H9))
             if H1 > 0 and H8 > 0 and H9 > 0:
                 PMT = calculatePMT(ir, np, pv, fv)
             
@@ -312,18 +318,28 @@ def commonResults(request):
                     'R4a' : R4b,
                     'R5a' : R5b
                     })    
-                
+            else:
+                contextBH = {
+                    'HOC' :HOC,
+                    'BR3': BR3,
+                    'BR4': BR4,
+                    'SME': SME,
+                    'ES' : ES,
+                    'HP_per' : HP_per                
+                }        
                 
         
         elif (section == "DM"):
+            print("INSIDE DM")
             R1a = (0/M1) * 100
             R2a = T1/(M2+0+M4) * 100
-            R3a = (((T1 + T2) / 0) * 100)
+            R3a = (((T1 + T2) / 1) * 100)
             R4a = ((T1 +T2) / (0 + M4) * 100)
             R5a = (M4 / M1) * 100
             R6a = (0 / (T1 + T2)) * 100
             R7a = (slack/M1) * 100
-            
+            R2Less = ((EFT * (M2+M3+M4)) - T1) / slack
+            print("Insied section DM")
             context.update({
                     'R1a' : R1a,
                     'R2a' : R2a,
@@ -331,7 +347,8 @@ def commonResults(request):
                     'R4a' : R4a,
                     'R5a' : R5a,
                     'R6a' : R6a,
-                    'R7a' : R7a
+                    'R7a' : R7a,
+                    'R2Less' : R2Less
                 }) 
         elif (section == "VP"):
             #Monthly Fixed Costs
@@ -359,13 +376,16 @@ def commonResults(request):
                     'AVS' : AVS,
                     'Surplus' : Surplus
                 }) 
-                
+
+        print("context")        
+        print(context)        
         if len(context) > 0 and len(contextBH) > 0:
             print("Inside if")    
             print(contextBH)
             return JsonResponse({'message': context, 'messageBH': contextBH})
         elif len(context) > 0 and len(contextBH) == 0:
             print("Inside else") 
+            print(context) 
             return JsonResponse({'message': context})
 
     else:
@@ -527,10 +547,10 @@ def payOffDebtRecos(request):
                     flag2 = 1    
                     savings = -1 
                     stat = ''
-                elif ex_saving <= 0:
-                    fund_months = ((EFT * (M2+M3+M4)) - T1) / slack
+                elif ex_saving <= 0:                
                 
                     if slack > 0:
+                        fund_months = ((EFT * (M2+M3+M4)) - T1) / slack
                         if flag2 == 0:
                             mon1 = int(float(value['amount']) / slack)
                             if mon1 == 0:
@@ -633,9 +653,8 @@ def payOffDebtRecos(request):
                     flag = 1
                 
                 elif ex_saving <= 0:
-                    fund_months = ((EFT * (M2 + M3 + M4)) - T1) / slack
-                
                     if slack > 0:
+                        fund_months = ((EFT * (M2 + M3 + M4)) - T1) / slack
                         if flag2 == 0:
                             mon1 = int(float(value['amount']) / slack)
                             
