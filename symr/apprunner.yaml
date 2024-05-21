@@ -1,23 +1,24 @@
 version: 1.0
-runtime: python311 
+runtime: python311
 build:
-  commands:    
-    build:        
-      - pip3 install pipenv
-      - pipenv install
-      - pip3 install -r requirements.txt
+  commands:
+    - python3.11 -m ensurepip --upgrade
+    - pip3 install Django # Install Django and dependencies
+    - pip3 install gunicorn # Install gunicorn during build
+    - python3 manage.py
   env:
-    - name: DJANGO_SETTINGS_MODULE
-      value: "symr.settings"
-    # - name: PATH
-      # value: "aws.amazon.com/aws-apprunner/python3.10.8"
+    - name: DEBUG
+      value: "on"
+    - name: ALLOWED_HOSTS
+      value: "*"
 run:
-  runtime-version: 3.11.9
-  command: pipenv run gunicorn symr.wsgi --log-file -
-  #command: python manage.py
-  network: 
+  runtime-version: 3.11
+  command: gunicorn django_apprunner.wsgi --log-file -
+  network:
     port: 8000
-    env: MY_APP_PORT  
-  # env:
-    # - name: PATH
-      # value: "aws.amazon.com/aws-apprunner/python3.10.8"
+    env: 8000
+  env:
+    - name: DEBUG
+      value: "on"
+    - name: ALLOWED_HOSTS
+      value: "*"
