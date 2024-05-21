@@ -9,8 +9,8 @@ build:
   env:
     - name: DJANGO_SETTINGS_MODULE
       value: "symr.settings"
-    - name: MY_VAR_EXAMPLE
-      value: "example"
+    - name: PATH
+      value: "aws.amazon.com/aws-apprunner/python3.11"
 run:
   runtime-version: 3.11.9
   command: pipenv run gunicorn symr.wsgi --log-file -
@@ -19,5 +19,5 @@ run:
     port: 8000
     env: MY_APP_PORT  
   env:
-    - name: MY_VAR_EXAMPLE
-      value: "example"
+    - name: PATH
+      value: "aws.amazon.com/aws-apprunner/python3.8"
