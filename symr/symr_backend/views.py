@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from django.http import JsonResponse, HttpResponseForbidden
 from django.middleware.csrf import get_token
@@ -7,8 +7,27 @@ from django.views.decorators.csrf import ensure_csrf_cookie, csrf_exempt, requir
 #from corsheaders.decorators import allow_all_origins
 import math
 import json
+import boto3
 from django.middleware.csrf import get_token
 from django.conf import settings
+from django.shortcuts import render, redirect
+from boto3.s3.transfer import S3Transfer
+from boto3.session import Session
+from botocore.exceptions import ClientError
+import jwt, requests
+from urllib.parse import urlencode
+from jwt.algorithms import RSAAlgorithm
+from jwt import PyJWKClient
+from jwt.exceptions import DecodeError, InvalidTokenError
+import os, io
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from base64 import b64encode, b64decode
+import magic
+from docx import Document
+from io import BytesIO
 
 def test_cookie(request):   
     if not request.COOKIES.get('team'):
@@ -19,6 +38,564 @@ def test_cookie(request):
         all_cookies = request.COOKIES
         print("All cookies:", all_cookies)
         return HttpResponse("Your favorite team is {}".format(request.COOKIES['team']))
+
+def verify_jwt_token(token, user_pool_id, region):
+    """
+    Verifies a JWT token using the Cognito public key retrieved from the JWKS endpoint.
+
+    Args:
+        token: The JWT token string.
+        user_pool_id: Your Cognito user pool ID.
+        region: The AWS region where your Cognito user pool resides.
+
+    Returns:
+        A dictionary containing the decoded claims if successful, None otherwise.
+
+    Raises:
+        jwt.exceptions.DecodeError: If the token is invalid.
+        requests.exceptions.RequestException: If there's an error fetching the JWKS.
+    """
+    jwks_url = f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json"
+    print("Received JWT token:", token)
+    try:
+        # Validate the JWT format
+        if token.count('.') != 2:
+            raise ValueError("Invalid JWT token format. A valid JWT should contain 3 parts separated by dots.")
+
+        # Fetch JWKS from the endpoint
+        response = requests.get(jwks_url)
+        response.raise_for_status()  # Raise exception for non-2xx status codes
+
+        jwks_client = PyJWKClient(jwks_url)
+
+        # Extract the signing key
+        signing_key = jwks_client.get_signing_key_from_jwt(token).key
+
+        # Decode the token using the signing key
+        payload = jwt.decode(token, signing_key, algorithms=['RS256'], options={"verify_exp": True})
+
+        return payload
+    except ValueError as e:
+        print(f"JWT format error: {e}")
+        raise
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching JWKS: {e}")
+        raise
+    except DecodeError as e:
+        print(f"Error decoding JWT: {e}")
+        raise InvalidTokenError("Invalid token")
+    except ExpiredSignatureError as e:
+        print(f"Expired token: {e}")
+        raise InvalidTokenError("Expired token")
+    except InvalidSignatureError as e:
+        print(f"Invalid signature: {e}")
+        raise InvalidTokenError("Invalid token signature")
+    except InvalidTokenError as e:
+        print(f"Invalid token: {e}")
+        raise
+
+def verify_jwt_token1(token, user_pool_id, region):
+    """
+    Verifies a JWT token using the Cognito public key retrieved from JWKS endpoint.
+
+    Args:
+        token: The JWT token string.
+        user_pool_id: Your Cognito user pool ID.
+        region: The AWS region where your Cognito user pool resides.
+
+    Returns:
+        A dictionary containing the decoded claims if successful, None otherwise.
+
+    Raises:
+        jwt.exceptions.DecodeError: If the token is invalid.
+        requests.exceptions.RequestException: If there's an error fetching the JWKS.
+    """
+    jwks_url = f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json"
+    try:
+        response = requests.get(jwks_url)
+        response.raise_for_status()  # Raise exception for non-2xx status codes
+
+        jwks = response.json()
+        signing_key_header = RSAAlgorithm.prepare('RS256')
+        signing_key = jwks['keys'][0]['n']
+
+        payload = jwt.decode(token, signing_key, algorithms=['RS256']) #header=signing_key_header)
+        return payload
+    except requests.exceptions.RequestException as e:
+        raise  # Re-raise the exception for handling in the view function
+
+
+# Function to encrypt file content using AWS KMS
+def encrypt_file_with_kms1(file_content, credentials, region):
+    # Replace with your KMS key ID or ARN
+    kms_key_id = os.getenv('AWS_KMS_KEY_ID') 
+    
+    if not kms_key_id:
+        raise ValueError("KMS key ID must be set in the environment variable AWS_KMS_KEY_ID")
+        
+ 
+
+    # Initialize KMS client with temporary credentials
+    # kms = boto3.client('kms', aws_access_key_id=kms_client['AccessKeyId'],
+                       # aws_secret_access_key=kms_client['SecretAccessKey'],
+                       # aws_session_token=kms_client['SessionToken'])
+    kms = boto3.client('kms',
+                       aws_access_key_id=credentials['AccessKeyId'],
+                       aws_secret_access_key=credentials['SecretAccessKey'],
+                       aws_session_token=credentials['SessionToken'],
+                       region_name=region)                   
+
+    # Encrypt file content using KMS
+    response = kms.encrypt(
+        KeyId=kms_key_id,
+        Plaintext=file_content,
+    )
+
+    encrypted_content = response['CiphertextBlob']
+    return encrypted_content
+
+
+def encrypt_file_with_kms(file_content, credentials, region):
+    """
+    Encrypts the provided file content using AWS KMS and envelope encryption with the cryptography library.
+    
+    :param file_content: Content of the file to be encrypted (in bytes).
+    :param credentials: Dictionary containing temporary AWS credentials.
+    :param region: AWS region where KMS key is located.
+    :return: Dictionary containing the encrypted content, encrypted DEK, and IV.
+    """
+    kms_key_id = os.getenv('AWS_KMS_KEY_ID')
+    if not kms_key_id:
+        raise ValueError("KMS key ID must be set in the environment variable AWS_KMS_KEY_ID")
+
+    # Initialize KMS client with temporary credentials
+    kms = boto3.client('kms',
+                       aws_access_key_id=credentials['AccessKeyId'],
+                       aws_secret_access_key=credentials['SecretAccessKey'],
+                       aws_session_token=credentials['SessionToken'],
+                       region_name=region)
+
+    # Generate a data encryption key (DEK)
+    response = kms.generate_data_key(KeyId=kms_key_id, KeySpec='AES_256')
+    plaintext_dek = response['Plaintext']  # This is the raw DEK (symmetric key)
+    encrypted_dek = response['CiphertextBlob']  # This is the DEK encrypted by KMS
+
+    # Encrypt the file content using AES encryption with the DEK
+    iv = os.urandom(16)  # Generate a random IV
+    cipher = Cipher(algorithms.AES(plaintext_dek), modes.CBC(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+
+    # Pad the file content to be a multiple of the AES block size (16 bytes)
+    padder = padding.PKCS7(algorithms.AES.block_size).padder()
+    padded_content = padder.update(file_content) + padder.finalize()
+
+    # Encrypt the padded content
+    encrypted_content = encryptor.update(padded_content) + encryptor.finalize()
+
+    return {
+        'encrypted_content': encrypted_content,
+        'encrypted_dek': encrypted_dek,
+        'iv': iv
+    }
+
+@csrf_exempt
+def view_decrypted_file(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    auth_header = request.META.get('HTTP_AUTHORIZATION')
+    if not auth_header:
+        return JsonResponse({'error': 'Missing authorization header'}, status=401)
+
+    # Extract token from header (assuming 'Bearer' prefix)
+    parts = auth_header.split()
+    if parts[0] != 'Bearer' or len(parts) != 2:
+        return JsonResponse({'error': 'Invalid authentication header'}, status=401)
+    
+    token = parts[1]
+    user_pool_id = os.getenv('USER_POOL_ID')
+    region = os.getenv('AWS_REGION')
+    
+    # Verify the token
+    try:
+        payload = verify_jwt_token(token, user_pool_id, region)
+    except Exception as e:
+        return JsonResponse({'error': 'Token verification failed', 'message': str(e)}, status=401)
+    
+    # Access user information from the payload (e.g., username)
+    username = payload.get('username')
+    if not username:
+        return JsonResponse({'error': 'Invalid token payload'}, status=401)
+        
+    print("username "+username)    
+    request_body = json.loads(request.body)
+    file_id = request_body.get('file_id')
+    print("file_id "+file_id)
+    if not file_id:
+        return JsonResponse({'error': 'Missing file_id in request body'}, status=400)
+
+    # Parse the request body to get the file_id
+    try:
+        request_body = json.loads(request.body)
+        file_id = request_body.get('file_id')
+        print("file_id "+file_id)
+        if not file_id:
+            return JsonResponse({'error': 'Missing file_id in request body'}, status=400)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON in request body'}, status=400)
+    
+    print("after file_id ")
+    # Retrieve the S3 bucket name and region from environment variables
+    bucket_name = os.getenv('BUCKET_NAME')
+    region_name = os.getenv('AWS_REGION')
+
+    # Initialize S3 client
+    s3_client = boto3.client('s3', region_name=region_name)
+
+    # Define the key in S3 where the file is stored
+    s3_key = f"{file_id}"
+    
+    # Fetch the object metadata and the encrypted file content from S3
+    response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+    encrypted_content = response['Body'].read()
+    metadata_str = response['Metadata']['metadata']
+    metadata = json.loads(metadata_str)
+    print("metadata")
+    print(metadata)
+
+    # Extract the encrypted encryption key (DEK) from the metadata
+    encrypted_encryption_key_base64 = metadata['encryption_key']
+    encrypted_encryption_key = b64decode(encrypted_encryption_key_base64)  # Decode the base64 encrypted DEK
+
+
+
+    # Initialize KMS client
+    kms_client = boto3.client('kms', region_name=region_name)
+
+    # Decrypt the encrypted DEK using KMS
+    try:
+        response = kms_client.decrypt(
+            CiphertextBlob=encrypted_encryption_key
+        )
+        encryption_key = response['Plaintext']
+    except Exception as e:
+        return JsonResponse({'error': f"KMS Decryption failed: {str(e)}"}, status=500)
+
+
+    # Initialize the decryption cipher with the decrypted key
+    backend = default_backend()
+    iv = b64decode(metadata['iv'])  # Use the IV from metadata
+    cipher = Cipher(algorithms.AES(encryption_key), modes.CBC(iv), backend=backend)
+    decryptor = cipher.decryptor()
+
+    # Decrypt the content
+    decrypted_content = decryptor.update(encrypted_content) + decryptor.finalize()
+    
+
+    # Unpad the decrypted content (assuming padding was applied during encryption)
+    unpadder = padding.PKCS7(algorithms.AES.block_size).unpadder()
+    unpadded_decrypted_content = unpadder.update(decrypted_content) + unpadder.finalize()
+
+    # Determine the file type
+    file_type = magic.from_buffer(unpadded_decrypted_content, mime=True)
+    print("File type detected:", file_type)
+
+    if file_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        docx_content = extract_docx_text(unpadded_decrypted_content)
+        return JsonResponse({'file_content': docx_content})
+        # Handle .docx files
+        try:
+            docx_content = extract_docx_text(unpadded_decrypted_content)
+            return JsonResponse({'file_content': docx_content})
+        except Exception as e:
+            return JsonResponse({'error': f'Failed to extract text from .docx: {str(e)}'}, status=500)
+
+    elif file_type.startswith('text/'):
+        # If the file is a text file, decode and return it as text
+        try:
+            decoded_content = unpadded_decrypted_content.decode('utf-8')
+            return JsonResponse({'file_content': decoded_content})
+        except UnicodeDecodeError:
+            return JsonResponse({'error': 'Failed to decode text content'}, status=400)
+    else:
+        # For binary files, return the content in base64 encoding
+        encoded_content = b64encode(unpadded_decrypted_content).decode('utf-8')
+        return JsonResponse({'file_content': encoded_content})
+
+def extract_docx_text(docx_data):
+    """Extracts text from a .docx file given its binary data."""
+    document = Document(BytesIO(docx_data))
+    text = []
+    for paragraph in document.paragraphs:
+        text.append(paragraph.text)
+    return '\n'.join(text)
+    
+    print("Inside extract_docx_text")
+    
+    # Fetch the object metadata and the encrypted file content from S3
+    response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+    encrypted_content = response['Body'].read()
+    metadata = response['Metadata']
+
+    # Extract the encryption key from the metadata
+    if 'encryption_key' not in metadata:
+        return JsonResponse({'error': 'Encryption key not found in metadata'}, status=400)
+
+    encryption_key_base64 = metadata['encryption_key']
+    encryption_key = b64decode(encryption_key_base64)  # Decode the base64 encryption key
+
+    # Initialize the decryption cipher
+    backend = default_backend()
+    iv = b'\0' * 16  # Ensure this matches the IV used during encryption
+    cipher = Cipher(algorithms.AES(encryption_key), modes.CBC(iv), backend=backend)
+    decryptor = cipher.decryptor()
+
+    # Decrypt the content
+    decrypted_content = decryptor.update(encrypted_content) + decryptor.finalize()
+
+    # Unpad the decrypted content (assuming padding was applied during encryption)
+    unpadder = padding.PKCS7(algorithms.AES.block_size).unpadder()
+    unpadded_decrypted_content = unpadder.update(decrypted_content) + unpadder.finalize()
+
+    # Determine the file type
+    file_type = magic.from_buffer(unpadded_decrypted_content, mime=True)
+    print("File type detected:", file_type)
+
+    if file_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        # Handle .docx files
+        try:
+            docx_content = extract_docx_text(unpadded_decrypted_content)
+            return JsonResponse({'file_content': docx_content})
+        except Exception as e:
+            return JsonResponse({'error': f'Failed to extract text from .docx: {str(e)}'}, status=500)
+
+    elif file_type.startswith('text/'):
+        # If the file is a text file, decode and return it as text
+        try:
+            decoded_content = unpadded_decrypted_content.decode('utf-8')
+            return JsonResponse({'file_content': decoded_content})
+        except UnicodeDecodeError:
+            return JsonResponse({'error': 'Failed to decode text content'}, status=400)
+    else:
+        # For binary files, return the content in base64 encoding
+        encoded_content = b64encode(unpadded_decrypted_content).decode('utf-8')
+        return JsonResponse({'file_content': encoded_content})
+
+    try:
+        # Fetch the object metadata and the encrypted file content from S3
+        response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+        encrypted_content = response['Body'].read()
+        metadata = response['Metadata']
+
+        # Extract the encryption key from the metadata
+        if 'encryption_key' not in metadata:
+            return JsonResponse({'error': 'Encryption key not found in metadata'}, status=400)
+
+        encryption_key_base64 = metadata['encryption_key']
+        encryption_key = b64decode(encryption_key_base64)  # Decode the base64 encryption key
+
+        # Initialize the decryption cipher
+        backend = default_backend()
+        iv = b'\0' * 16  # Ensure this matches the IV used during encryption
+        cipher = Cipher(algorithms.AES(encryption_key), modes.CBC(iv), backend=backend)
+        decryptor = cipher.decryptor()
+
+        # Decrypt the content
+        decrypted_content = decryptor.update(encrypted_content) + decryptor.finalize()
+
+        # Unpad the decrypted content (assuming padding was applied during encryption)
+        unpadder = padding.PKCS7(algorithms.AES.block_size).unpadder()
+        unpadded_decrypted_content = unpadder.update(decrypted_content) + unpadder.finalize()
+
+        # Determine the file type
+        file_type = magic.from_buffer(unpadded_decrypted_content, mime=True)
+        print("File type detected:", file_type)
+
+        if file_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+            # Handle .docx files
+            try:
+                docx_content = extract_docx_text(unpadded_decrypted_content)
+                return JsonResponse({'file_content': docx_content})
+            except Exception as e:
+                return JsonResponse({'error': f'Failed to extract text from .docx: {str(e)}'}, status=500)
+
+        elif file_type.startswith('text/'):
+            # If the file is a text file, decode and return it as text
+            try:
+                decoded_content = unpadded_decrypted_content.decode('utf-8')
+                return JsonResponse({'file_content': decoded_content})
+            except UnicodeDecodeError:
+                return JsonResponse({'error': 'Failed to decode text content'}, status=400)
+        else:
+            # For binary files, return the content in base64 encoding
+            encoded_content = b64encode(unpadded_decrypted_content).decode('utf-8')
+            return JsonResponse({'file_content': encoded_content})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+        
+
+@csrf_exempt
+def upload_file(request):
+  # Initialize AWS clients
+  s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION'))
+  sts_client = boto3.client('sts', region_name=os.getenv('AWS_DEFAULT_REGION'))    
+    
+  if request.method == 'POST':
+    auth_header = request.META.get('HTTP_AUTHORIZATION')
+    
+    if not auth_header:
+        return JsonResponse({'error': 'Missing authorization header'}, status=401)
+
+    # Extract token from header (assuming 'Bearer' prefix)
+    parts = auth_header.split()
+    if parts[0] != 'Bearer':
+        return JsonResponse({'error': 'Invalid authentication header'}, status=401)
+    token = parts[1]
+
+    # Replace with your actual Cognito user pool ID and region
+    user_pool_id = os.getenv('USER_POOL_ID')
+    region = os.getenv('AWS_REGION')
+    
+    # Replace with your bucket name and credentials (store securely)
+    BUCKET_NAME = os.getenv('BUCKET_NAME') 
+    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
+    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
+      
+    """Uploads a file to the S3 bucket."""
+    s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID, 
+                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
+    #try:
+    # Assume role to get temporary credentials
+    assumed_role = sts_client.assume_role(
+        RoleArn='arn:aws:iam::471112980832:role/SYMRKMSRole',  # Replace with your IAM role ARN
+        RoleSessionName='Session1'  # Unique session name
+    )
+
+    # Extract temporary credentials
+    credentials = assumed_role['Credentials']
+
+    # Initialize AWS KMS client with temporary credentials
+    # kms_client = boto3.client('kms',
+                              # aws_access_key_id=credentials['AccessKeyId'],
+                              # aws_secret_access_key=credentials['SecretAccessKey'],
+                              # aws_session_token=credentials['SessionToken'],
+                              # region_name=region)
+
+
+
+
+    payload = verify_jwt_token(token, user_pool_id, region)
+    
+    if not payload:
+        return JsonResponse({'error': 'Invalid token'}, status=401)
+
+    # Access user information from the payload (e.g., user ID)
+    user_id = payload.get('username')
+
+    # ... process data based on user_id
+    # Handle file upload
+    uploaded_file = request.FILES.get('file')
+    if not uploaded_file:
+        return JsonResponse({'error': 'No file uploaded'}, status=400)
+    
+    filename = uploaded_file.name  
+    
+    # Add folder path to filename (replace "folder_name" with your desired folder)
+    filename = f"{user_id}/{filename}"
+    
+    
+    # Encrypt the file content before uploading
+    file_content = uploaded_file.read()
+    encrypted_data  = encrypt_file_with_kms(file_content, credentials, region)
+    encrypted_content = b64encode(encrypted_data['encrypted_content'])
+    
+    print("Encrypted Content:", b64encode(encrypted_data['encrypted_content']))
+    print("Encrypted DEK:", b64encode(encrypted_data['encrypted_dek']))
+    print("IV:", b64encode(encrypted_data['iv']))
+
+    # Prepare metadata
+    metadata = {
+        'original_filename': uploaded_file.name,
+        'encrypted_file_size': len(encrypted_content),  # Assuming this is the encrypted content length
+        'user_id': user_id,
+        'upload_date': str(datetime.now()),
+        'encryption_key': b64encode(encrypted_data['encrypted_dek']).decode('utf-8'),  # Store encrypted DEK
+        'iv': b64encode(encrypted_data['iv']).decode('utf-8')  # Store IV
+    }
+
+    # Convert metadata to JSON string
+    metadata_json = json.dumps(metadata)
+    
+    
+    try:
+        # Create a BytesIO object from the encrypted content
+        encrypted_content_io = io.BytesIO(encrypted_data['encrypted_content'])
+
+        # Upload using upload_fileobj
+        s3_client.upload_fileobj(
+            encrypted_content_io,
+            BUCKET_NAME,
+            filename,
+            ExtraArgs={'Metadata': {'metadata': metadata_json}}
+        )
+
+        return JsonResponse({'message': f'File {filename} encrypted and uploaded  successfully!'})
+    except boto3.exceptions.S3UploadFailedError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+    
+    # Upload encrypted content to S3 bucket
+    # s3_client.put_object(Body=encrypted_content, Bucket=BUCKET_NAME, Key=f"{user_id}/{filename}",
+                         # Metadata={'metadata': metadata_json})
+    
+    
+
+    # Upload file to S3 bucket
+    #s3.upload_fileobj(uploaded_file, BUCKET_NAME, filename)
+    #return JsonResponse({'message': f'File {filename} encrypted and uploaded successfully!'})
+        
+    #except ClientError as e:
+    #    print("Inside Client Error")
+     #   return JsonResponse({'error': str(e)}, status=400)
+
+
+
+@csrf_exempt
+def list_user_files(request):
+    auth_header = request.META.get('HTTP_AUTHORIZATION')
+    if not auth_header:
+        return JsonResponse({'error': 'Missing authorization header'}, status=401)
+    
+    token = auth_header.split()[1] if 'Bearer' in auth_header else auth_header
+    user_pool_id = os.getenv('USER_POOL_ID')
+    region = os.getenv('AWS_REGION')
+
+    # Verify the JWT token
+    payload = verify_jwt_token(token, user_pool_id, region)
+    if not payload:
+        return JsonResponse({'error': 'Invalid token'}, status=401)
+
+    user_id = payload.get('username')  # Extract user ID from the token payload
+
+    # Initialize S3 client
+    s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                             region_name=os.getenv('AWS_REGION'))
+
+    # Define the user's directory path in S3
+    user_prefix = f"{user_id}/"
+
+    # List objects in the user's directory
+    response = s3_client.list_objects_v2(Bucket=os.getenv('BUCKET_NAME'), Prefix=user_prefix)
+
+    # Extract file names
+    files = []
+    if 'Contents' in response:
+        for obj in response['Contents']:
+            files.append({'Key': obj['Key'], 'LastModified': obj['LastModified'].isoformat()})
+
+    return JsonResponse({'files': files})
+
 
 @csrf_exempt
 def get_csrf_token(request):
@@ -1220,3 +1797,7 @@ def investRecos(request):
             }, indent=4) 
     else:
         return JsonResponse({'error': 'Unsupported HTTP method'})             
+
+
+
+

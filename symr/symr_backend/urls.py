@@ -10,6 +10,9 @@ urlpatterns = [
     path('api/AS/', views.allocateSavings, name='allocateSavings'),
     path('api/SFG/', views.saveForGoal, name='saveForGoal'),
     path('api/INV/', views.investRecos, name='investRecos'),
+    path('api/upload/', views.upload_file, name='upload_file'),
+    path('api/list_files/', views.list_user_files, name='list_files'),
+    path('api/files/view/', views.view_decrypted_file, name='view_decrypted_file'),
     path('get_csrf_token/', views.get_csrf_token, name='get_csrf_token'),
     path('test_cookie/', views.test_cookie, name='test_cookie'),
     
