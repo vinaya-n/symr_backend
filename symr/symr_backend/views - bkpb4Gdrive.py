@@ -29,17 +29,12 @@ import magic
 from docx import Document
 from PyPDF2 import PdfReader
 from io import BytesIO
-from google.oauth2 import service_account
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from django.core.files.storage import default_storage
-from google_auth_oauthlib.flow import Flow
-import logging
-from django.urls import reverse
-
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Only for development
+from googleapiclient.http import MediaFileUpload
 
 def test_cookie(request):   
     if not request.COOKIES.get('team'):
@@ -582,123 +577,32 @@ def extract_docx_text(docx_data):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-# Global variable to hold credentials
-creds = None
-
-# Function to initiate Google OAuth2 flow
-
-@csrf_exempt
-def google_drive_auth(request):
-    flow = Flow.from_client_secrets_file(
-        settings.GOOGLE_DRIVE_CLIENT_SECRETS,
-        scopes=['https://www.googleapis.com/auth/drive.file'],
-        redirect_uri=request.build_absolute_uri(reverse('oauth2callback'))
-    )
-
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true'
-    )
-
-    # Debugging: log the state and authorization URL
-    print("State:", state)
-    print("Authorization URL:", authorization_url)
-    
-    print("Session before setting state:", request.session.items())
-
-
-    request.session['google_drive_auth_state'] = state
-    request.session.modified = True  # Explicitly mark session as modified
-    
-    print("Session after setting state:", request.session.items())
-    
-    return redirect(authorization_url)
-
-def oauth2callback(request):
-    state = request.session.get('google_drive_auth_state')
-    
-    # Log the session details and state
-    print("Session during callback:", request.session.items())
-    print("Retrieved State:", state)
-
-
-    if not state:
-        print("No state found in session.")
-        return redirect('http://localhost:3000/profile')  # Redirect to an error page or handle accordingly
-
-    flow = Flow.from_client_secrets_file(
-        settings.GOOGLE_DRIVE_CLIENT_SECRETS,
-        scopes=['https://www.googleapis.com/auth/drive.file'],
-        state=state,
-        redirect_uri=request.build_absolute_uri(reverse('oauth2callback'))
-    )
-
-    # Fetch the token using the authorization response URL
-    flow.fetch_token(authorization_response=request.build_absolute_uri())
-
-    creds = flow.credentials
-    request.session['google_drive_creds'] = creds.to_json()
-
-    # Redirect to the React app's user profile page
-    return redirect('http://localhost:3000/profile')
-
-    
-    
-@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def upload_to_google_drive(request):
-    global creds
-    
-    # Check for existing credentials in the session
-    creds_json = request.session.get('google_drive_creds', None)
-    if creds_json:
-        creds = service_account.Credentials.from_authorized_user_info(json.loads(creds_json))
-    
-    if not creds or not creds.valid:
-        return redirect('google_drive_auth')
-    
-    if request.method == 'POST' and request.FILES.get('file'):
-        file = request.FILES['file']
-        file_path = default_storage.save(file.name, file)
+    # Get the Google OAuth token from the request headers
+    google_token = request.headers.get('Authorization').split('Bearer ')[-1]
+    file = request.FILES['file']
 
-        drive_service = build('drive', 'v3', credentials=creds)
+    try:
+        # Create credentials object from the token
+        credentials = Credentials(token=google_token)
+        service = build('drive', 'v3', credentials=credentials)
 
-        file_metadata = {'name': file.name}
-        media = MediaIoBaseUpload(io.BytesIO(file.read()), mimetype=file.content_type)
+        # Create a MediaFileUpload object to upload the file
+        media = MediaFileUpload(file.temporary_file_path(), mimetype=file.content_type)
+
+        # Upload the file to the user's Google Drive
+        file_metadata = {
+            'name': file.name,
+            'parents': ['root']  # Or specify a different folder
+        }
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+
+        return Response({'message': 'File uploaded to Google Drive successfully', 'file_id': uploaded_file.get('id')})
+    except Exception as e:
+        return Response({'message': 'Failed to upload file to Google Drive', 'error': str(e)}, status=400)
         
-        file_uploaded = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
-        
-        # Remove the temporary file
-        os.remove(file_path)
-        
-        return JsonResponse({"file_id": file_uploaded.get('id')})
-    
-    return HttpResponse(status=400)
-
-@csrf_exempt
-def list_google_drive_files(request):
-    global creds
-    creds_json = request.session.get('google_drive_creds', None)
-    if creds_json:
-        creds = service_account.Credentials.from_authorized_user_info(json.loads(creds_json))
-    
-    if not creds or not creds.valid:
-        return redirect('google_drive_auth')
-    
-    drive_service = build('drive', 'v3', credentials=creds)
-    
-    results = drive_service.files().list(
-        pageSize=10, fields="nextPageToken, files(id, name, mimeType, modifiedTime)"
-    ).execute()
-    
-    items = results.get('files', [])
-    
-    return JsonResponse({'files': items})
-
-
 
 @csrf_exempt
 def upload_file(request):

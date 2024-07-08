@@ -15,6 +15,7 @@ from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # AWS credentials and configuration
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -39,6 +40,10 @@ DEBUG = True
 #ALLOWED_HOSTS = ['*']
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'ivauid5qsa.us-west-2.awsapprunner.com', '172.31.36.145', ]
 
+GOOGLE_DRIVE_CLIENT_SECRETS = os.path.join(BASE_DIR, 'credentials.json')
+GOOGLE_DRIVE_API_SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 
 # Application definition
 
@@ -52,18 +57,19 @@ INSTALLED_APPS = [
     'corsheaders',
     'symr_backend',
     'gunicorn',    
+    'rest_framework',
     
 ]
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',    
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',    
+    'django.middleware.clickjacking.XFrameOptionsMiddleware', 
     
 ]
 

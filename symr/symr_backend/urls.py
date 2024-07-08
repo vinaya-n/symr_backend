@@ -15,5 +15,10 @@ urlpatterns = [
     path('api/files/view/', views.view_decrypted_file, name='view_decrypted_file'),
     path('get_csrf_token/', views.get_csrf_token, name='get_csrf_token'),
     path('test_cookie/', views.test_cookie, name='test_cookie'),
+    path('api/google_drive_auth/', views.google_drive_auth, name='google_drive_auth'),
+    path('api/upload_to_google_drive/', views.upload_to_google_drive, name='upload_to_google_drive'),
+    path('api/list_google_drive_files/', views.list_google_drive_files, name='list_google_drive_files'),
+    path('api/oauth2callback/', views.oauth2callback, name='oauth2callback'),
+    #path('api/oauth2callback/api/upload_to_google_drive', views.upload_to_google_drive, name='upload_to_google_drive'),
     
 ]
