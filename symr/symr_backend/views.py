@@ -51,6 +51,31 @@ def test_cookie(request):
         print("All cookies:", all_cookies)
         return HttpResponse("Your favorite team is {}".format(request.COOKIES['team']))
 
+def get_secret():
+
+    secret_name = "AWS_Access"
+    region_name = "us-west-2"
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        # For a list of exceptions thrown, see
+        # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+        raise e
+
+    secret = get_secret_value_response['SecretString']
+    return secret
+
+
 def verify_jwt_token(token, user_pool_id, region):
     """
     Verifies a JWT token using the Cognito public key retrieved from the JWKS endpoint.
@@ -725,7 +750,8 @@ def upload_file(request):
     # Replace with your bucket name and credentials (store securely)
     BUCKET_NAME = os.getenv('BUCKET_NAME') 
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
-    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
+    #AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
+    AWS_SECRET_ACCESS_KEY = get_secret()
       
     """Uploads a file to the S3 bucket."""
     s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID, 
