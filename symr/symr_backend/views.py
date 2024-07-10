@@ -867,10 +867,12 @@ def list_user_files(request):
         return JsonResponse({'error': 'Invalid token'}, status=401)
 
     user_id = payload.get('username')  # Extract user ID from the token payload
+    
+    AWS_SECRET_ACCESS_KEY = get_secret()
 
     # Initialize S3 client
     s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
                              region_name=os.getenv('AWS_REGION'))
 
     # Define the user's directory path in S3
