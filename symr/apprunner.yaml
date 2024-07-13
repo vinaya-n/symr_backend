@@ -25,7 +25,10 @@ run:
     # - name: PATH
       # value: "aws.amazon.com/aws-apprunner/python3.10.8"
   secrets:
-    - name: SECRETS
-      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"  
-
+    - name: AWS_SECRET_ACCESS_KEY
+      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
+    - name: AWS_ACCESS_KEY_ID
+      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
+    - name: AWS_REGION
+      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"    
 instanceRoleArn: arn:aws:iam::471112980832:role/AppRunnerSecretsRole      
