@@ -1,5 +1,5 @@
 version: 1.0
-runtime: python3.11  # Ensure runtime version consistency
+runtime: python3  # Ensure runtime version consistency
 build:
   commands:    
     build:        
