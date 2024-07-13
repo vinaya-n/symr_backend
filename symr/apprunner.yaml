@@ -24,3 +24,9 @@ run:
   # env:
     # - name: PATH
       # value: "aws.amazon.com/aws-apprunner/python3.10.8"
+ environmentVariables:
+    AWS_REGION: "us-west-2"
+    SECRET_NAME: "AWS_Access"
+    USER_POOL_ID: "us-west-2_h8iTt5WdT"
+    BUCKET_NAME: "symr-user-bucket"
+    AWS_KMS_KEY_ID: "d683bb46-bef5-4848-adc1-f7bd75d61dbf"
