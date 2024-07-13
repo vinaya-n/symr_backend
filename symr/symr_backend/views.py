@@ -43,6 +43,18 @@ from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Only for development
 
+
+def print_env_vars(request):
+    aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+    aws_region = os.getenv('AWS_REGION')
+    
+    return JsonResponse({
+        'AWS_ACCESS_KEY_ID': aws_access_key_id,
+        'AWS_SECRET_ACCESS_KEY': aws_secret_access_key,
+        'AWS_REGION': aws_region,
+    })
+
 def test_cookie(request):   
     if not request.COOKIES.get('team'):
         response = HttpResponse("Visiting for the first time.")

@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/upload_to_google_drive/', views.upload_to_google_drive, name='upload_to_google_drive'),
     path('api/list_google_drive_files/', views.list_google_drive_files, name='list_google_drive_files'),
     path('api/oauth2callback/', views.oauth2callback, name='oauth2callback'),
+    path('api/print-env/', views.print_env_vars, name='print_env_vars'),
     #path('api/oauth2callback/api/upload_to_google_drive', views.upload_to_google_drive, name='upload_to_google_drive'),
     
 ]
