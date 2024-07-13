@@ -806,8 +806,8 @@ def upload_file(request):
     
     # Replace with your bucket name and credentials (store securely)
    # BUCKET_NAME = os.getenv('BUCKET_NAME') 
-    #AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
-    #AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
+    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
+    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
     #AWS_SECRET_ACCESS_KEY = get_secret()
     
     #print("AWS_SECRET_ACCESS_KEY "+AWS_SECRET_ACCESS_KEY)
@@ -827,8 +827,8 @@ def upload_file(request):
     region = secret_dict['AWS_REGION']
       
     """Uploads a file to the S3 bucket."""
-    s3 = boto3.client('s3', aws_access_key_id=secret_dict['AWS_ACCESS_KEY_ID'], 
-                     aws_secret_access_key=secret_dict['AWS_SECRET_ACCESS_KEY'])
+    s3 = boto3.client('s3', aws_access_key_id='AWS_ACCESS_KEY_ID, 
+                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
     #try:
     
 
@@ -931,6 +931,9 @@ def list_user_files(request):
     token = auth_header.split()[1] if 'Bearer' in auth_header else auth_header
     user_pool_id = os.getenv('USER_POOL_ID')
     region = os.getenv('AWS_REGION')
+    
+    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
+    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
 
     # Verify the JWT token
     payload = verify_jwt_token(token, user_pool_id, region)
@@ -963,8 +966,8 @@ def list_user_files(request):
 
     # Initialize S3 client
     s3_client = boto3.client('s3', 
-                             aws_access_key_id=secret_dict['AWS_ACCESS_KEY_ID'],
-                             aws_secret_access_key=secret_dict['AWS_SECRET_ACCESS_KEY'],
+                             aws_access_key_id=AWS_ACCESS_KEY_ID,
+                             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
                             # aws_session_token=aws_session_token,
                              region_name=region)
 
