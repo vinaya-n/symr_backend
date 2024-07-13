@@ -1,18 +1,22 @@
 version: 1.0
 runtime: python3 
+image: aws.amazon.com/aws-apprunner/python3.8
 build:
   commands:    
     build:        
       - pip install pipenv
       - pipenv install
-      - pip3 install -r requirements.txt    
+      - pip3 install -r requirements.txt
+    start:
+      - python manage.py runserver			
+    
   env:
     - name: DJANGO_SETTINGS_MODULE
       value: "symr.settings"
     - name: MY_VAR_EXAMPLE
       value: "example"
 run:
-  runtime-version: 3.11.9
+  runtime-version: 3.11
   command: pipenv run gunicorn symr.wsgi --log-file -
   network: 
     port: 8000
@@ -20,10 +24,3 @@ run:
   env:
     - name: MY_VAR_EXAMPLE
       value: "example"
-  secrets:
-    - name: AWS_SECRET_ACCESS_KEY
-      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
-    - name: AWS_ACCESS_KEY_ID
-      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
-    - name: AWS_REGION
-      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"      
