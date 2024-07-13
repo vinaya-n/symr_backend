@@ -1,26 +1,26 @@
 version: 1.0
-runtime: python3 
-image: aws.amazon.com/aws-apprunner/python3.8
+runtime: python311 
 build:
   commands:    
     build:        
-      - pip install pipenv
-      - pipenv install
-      - pip3 install -r requirements.txt
-    start:
-      - python manage.py runserver			
-    
+    - python3.11 -m ensurepip --upgrade
+    - pip3 install Django # Install Django and dependencies
+    - pip3 install gunicorn # Install gunicorn during build
   env:
     - name: DJANGO_SETTINGS_MODULE
       value: "symr.settings"
-    - name: MY_VAR_EXAMPLE
-      value: "example"
+    # - name: PATH
+      # value: "aws.amazon.com/aws-apprunner/python3.10.8"
 run:
-  runtime-version: 3.11
-  command: pipenv run gunicorn symr.wsgi --log-file -
+  runtime-version: 3.11.9
+  pre-run:
+    - pip3 install gunicorn
+    - pip3 install -r requirements.txt
+    - which gunicorn
+  command: gunicorn symr.wsgi --log-file -
   network: 
     port: 8000
     env: MY_APP_PORT  
-  env:
-    - name: MY_VAR_EXAMPLE
-      value: "example"
+  # env:
+    # - name: PATH
+      # value: "aws.amazon.com/aws-apprunner/python3.10.8"
