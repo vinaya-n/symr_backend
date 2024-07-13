@@ -1,32 +1,34 @@
 version: 1.0
-runtime: python311 
+runtime: python3.11  # Ensure runtime version consistency
 build:
   commands:    
     build:        
-    - python3.11 -m ensurepip --upgrade
-    - pip3 install Django # Install Django and dependencies
-    - pip3 install gunicorn # Install gunicorn during build
-  env:
-    - name: DJANGO_SETTINGS_MODULE
-      value: "symr.settings"
-    # - name: PATH
-      # value: "aws.amazon.com/aws-apprunner/python3.10.8"
+      - pip install pipenv
+      - pipenv install
+      - pip3 install -r requirements.txt
+env:
+  - name: DJANGO_SETTINGS_MODULE
+    value: "symr.settings"
+  - name: MY_VAR_EXAMPLE
+    value: "example"
 run:
-  runtime-version: 3.11.9
+  runtime-version: 3.11  # Ensure runtime version consistency
   pre-run:
-    - pip3 install gunicorn
+    - pip install pipenv
+    - pipenv install
     - pip3 install -r requirements.txt
-    - which gunicorn
-  command: gunicorn symr.wsgi --log-file -
-  network: 
+    - which gunicorn  # Verify gunicorn installation
+  command: pipenv run gunicorn symr.wsgi --log-file -
+  network:
     port: 8000
-    env: MY_APP_PORT  
-  # env:
-    # - name: PATH
-      # value: "aws.amazon.com/aws-apprunner/python3.10.8"
- environmentVariables:
-    AWS_REGION: "us-west-2"
-    SECRET_NAME: "AWS_Access"
-    USER_POOL_ID: "us-west-2_h8iTt5WdT"
-    BUCKET_NAME: "symr-user-bucket"
-    AWS_KMS_KEY_ID: "d683bb46-bef5-4848-adc1-f7bd75d61dbf"
+    env: MY_APP_PORT
+  env:
+    - name: MY_VAR_EXAMPLE
+      value: "example"
+  secrets:
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
+    - name: AWS_REGION
+      valueFrom: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
