@@ -829,7 +829,7 @@ def upload_file(request):
      #   return JsonResponse({'error': str(e)}, status=400)
 
 def get_aws_credentials():
-    secret_name = os.getenv('SECRET_NAME')
+    secret_name = 'AWS_Access'
     region_name = 'us-west-2'
 
     # Create a Secrets Manager client
