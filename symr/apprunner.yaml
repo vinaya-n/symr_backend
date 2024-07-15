@@ -21,6 +21,11 @@ run:
   network: 
     port: 8000
     env: MY_APP_PORT  
+  env:
+    - name: BUCKET_NAME
+      value: "symr-user-bucket"  
+    - name: USER_POOL_ID
+      value: "us-west-2_h8iTt5WdT"    
   secrets:
     - name: AWS_SECRET_ACCESS_KEY
       value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
