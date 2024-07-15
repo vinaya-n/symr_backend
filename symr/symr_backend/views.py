@@ -41,6 +41,9 @@ from django.urls import reverse
 
 #os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Only for development
 
+
+
+
 def test_cookie(request):   
     if not request.COOKIES.get('team'):
         response = HttpResponse("Visiting for the first time.")
@@ -849,6 +852,10 @@ def list_user_files(request):
 
     # Define the user's directory path in S3
     user_prefix = f"{user_id}/"
+    
+    print('AWS_ACCESS_KEY_ID '+ os.getenv('AWS_ACCESS_KEY_ID'))
+    print('AWS_SECRET_ACCESS_KEY '+ os.getenv('AWS_SECRET_ACCESS_KEY'))
+    print('AWS_REGION '+ os.getenv('AWS_REGION'))
 
     # List objects in the user's directory
     response = s3_client.list_objects_v2(Bucket=os.getenv('BUCKET_NAME'), Prefix=user_prefix)
