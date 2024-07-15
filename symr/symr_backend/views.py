@@ -829,8 +829,8 @@ def upload_file(request):
      #   return JsonResponse({'error': str(e)}, status=400)
 
 def get_aws_credentials():
-    secret_name = 'AWS_Access'
-    region_name = 'us-west-2'
+    secret_name = os.getenv('SECRET_NAME')
+    region_name = os.getenv('AWS_REGION')
 
     # Create a Secrets Manager client
     session = boto3.session.Session()
@@ -840,7 +840,7 @@ def get_aws_credentials():
         get_secret_value_response = client.get_secret_value(SecretId=secret_name)
     except ClientError as e:
         print(f"Error retrieving secret: {e}")
-        return None, None
+        return None, None, None
 
     # Parse the secret
     secret = get_secret_value_response['SecretString']
@@ -850,11 +850,6 @@ def get_aws_credentials():
     aws_access_key_id = secret_dict.get('AWS_ACCESS_KEY_ID')
     aws_secret_access_key = secret_dict.get('AWS_SECRET_ACCESS_KEY')
     region = secret_dict.get('AWS_REGION')
-
-    # Set them as environment variables
-    os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key_id
-    os.environ['AWS_SECRET_ACCESS_KEY'] = aws_secret_access_key
-    os.environ['AWS_REGION'] = region
 
     return aws_access_key_id, aws_secret_access_key, region
 
