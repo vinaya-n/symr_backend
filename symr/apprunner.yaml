@@ -2,8 +2,6 @@ version: 1.0
 runtime: python311 
 build:
   commands:   
-    pre-build:
-      - n 14.18.3
     build:        
     - python3.11 -m ensurepip --upgrade
     - pip3 install Django # Install Django and dependencies
