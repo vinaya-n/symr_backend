@@ -829,8 +829,8 @@ def upload_file(request):
      #   return JsonResponse({'error': str(e)}, status=400)
 
 def get_aws_credentials():
-    secret_name = os.getenv('SECRET_NAME')
-    region_name = os.getenv('AWS_REGION')
+    secret_name = 'AWS_Access'
+    region_name = 'us-west-2'
 
     # Create a Secrets Manager client
     session = boto3.session.Session()
