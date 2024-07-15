@@ -70,6 +70,8 @@ def verify_jwt_token(token, user_pool_id, region):
         jwt.exceptions.DecodeError: If the token is invalid.
         requests.exceptions.RequestException: If there's an error fetching the JWKS.
     """
+    print ('Inside verify_jwt_token')
+    print ('region is '+ region)
     jwks_url = f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json"
     print("Received JWT token:", token)
     try:
@@ -826,7 +828,35 @@ def upload_file(request):
     #    print("Inside Client Error")
      #   return JsonResponse({'error': str(e)}, status=400)
 
+def get_aws_credentials():
+    secret_name = os.getenv('SECRET_NAME')
+    region_name = 'us-west-2'
 
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(service_name='secretsmanager', region_name=region_name)
+
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+    except ClientError as e:
+        print(f"Error retrieving secret: {e}")
+        return None, None
+
+    # Parse the secret
+    secret = get_secret_value_response['SecretString']
+    secret_dict = json.loads(secret)
+
+    # Extract credentials
+    aws_access_key_id = secret_dict.get('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key = secret_dict.get('AWS_SECRET_ACCESS_KEY')
+    region = secret_dict.get('AWS_REGION')
+
+    # Set them as environment variables
+    os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key_id
+    os.environ['AWS_SECRET_ACCESS_KEY'] = aws_secret_access_key
+    os.environ['AWS_REGION'] = region
+
+    return aws_access_key_id, aws_secret_access_key, region
 
 @csrf_exempt
 def list_user_files(request):
@@ -836,26 +866,29 @@ def list_user_files(request):
     
     token = auth_header.split()[1] if 'Bearer' in auth_header else auth_header
     user_pool_id = os.getenv('USER_POOL_ID')
-    region = os.getenv('AWS_REGION')
+    region = 'us-west-2'
 
     # Verify the JWT token
     payload = verify_jwt_token(token, user_pool_id, region)
+    
     if not payload:
         return JsonResponse({'error': 'Invalid token'}, status=401)
 
     user_id = payload.get('username')  # Extract user ID from the token payload
+    aws_access_key_id_f, aws_secret_access_key_f, region_f = get_aws_credentials()
 
     # Initialize S3 client
-    s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-                             region_name=os.getenv('AWS_REGION'))
+    # s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                             # aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                             # region_name=os.getenv('AWS_REGION'))
+    
+    s3_client = boto3.client('s3', aws_access_key_id=aws_access_key_id_f,
+                             aws_secret_access_key=aws_secret_access_key_f,
+                             region_name=region_f)
 
     # Define the user's directory path in S3
     user_prefix = f"{user_id}/"
-    
-    print('AWS_ACCESS_KEY_ID '+ os.getenv('AWS_ACCESS_KEY_ID'))
-    print('AWS_SECRET_ACCESS_KEY '+ os.getenv('AWS_SECRET_ACCESS_KEY'))
-    print('AWS_REGION '+ os.getenv('AWS_REGION'))
+
 
     # List objects in the user's directory
     response = s3_client.list_objects_v2(Bucket=os.getenv('BUCKET_NAME'), Prefix=user_prefix)
