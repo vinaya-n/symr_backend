@@ -38,22 +38,8 @@ from django.core.files.storage import default_storage
 from google_auth_oauthlib.flow import Flow
 import logging
 from django.urls import reverse
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 
-
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Only for development
-
-
-def print_env_vars(request):
-    aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-    aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-    aws_region = os.getenv('AWS_REGION')
-    
-    return JsonResponse({
-        'AWS_ACCESS_KEY_ID': aws_access_key_id,
-        'AWS_SECRET_ACCESS_KEY': aws_secret_access_key,
-        'AWS_REGION': aws_region,
-    })
+#os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Only for development
 
 def test_cookie(request):   
     if not request.COOKIES.get('team'):
@@ -64,53 +50,6 @@ def test_cookie(request):
         all_cookies = request.COOKIES
         print("All cookies:", all_cookies)
         return HttpResponse("Your favorite team is {}".format(request.COOKIES['team']))
-
-def get_temporary_credentials():
-    try:
-        # Create an STS client
-        sts_client = boto3.client('sts')
-        
-        # Assume the specified role
-        assumed_role = sts_client.assume_role(
-            RoleArn='arn:aws:iam::471112980832:role/SYMRKMSRole',  # Replace with your IAM role ARN
-            RoleSessionName='Session1'  # Unique session name
-        )
-        
-        # Extract temporary credentials
-        credentials = assumed_role['Credentials']
-        return credentials['AccessKeyId'], credentials['SecretAccessKey'], credentials['SessionToken']
-
-    except NoCredentialsError:
-        raise NoCredentialsError("Unable to locate initial credentials. Ensure that your AWS credentials are correctly set in your development environment.")
-    except PartialCredentialsError as e:
-        raise PartialCredentialsError(f"Partial credentials found: {str(e)}")
-    except Exception as e:
-        print(f"Error assuming role: {str(e)}")
-        raise e
-
-
-
-
-def get_secret():
-    secret_name = "AWS_Access"
-    region_name = "us-west-2"
-
-    # Create a Secrets Manager client
-    client = boto3.client(
-        service_name='secretsmanager',
-        region_name=region_name
-    )
-
-    try:
-        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
-    except Exception as e:
-        print(f"Error retrieving secret: {str(e)}")
-        raise
-
-    # Assuming the secret is a JSON string
-    secret = get_secret_value_response['SecretString']
-    return secret
-    
 
 def verify_jwt_token(token, user_pool_id, region):
     """
@@ -412,17 +351,6 @@ def view_decrypted_file_bkp(request):
         return JsonResponse({'error': 'Invalid request method'}, status=405)
 
     auth_header = request.META.get('HTTP_AUTHORIZATION')
-    sts_client = boto3.client('sts', region_name=os.getenv('AWS_DEFAULT_REGION'))
-    
-    
-    # Assume role to get temporary credentials
-    assumed_role = sts_client.assume_role(
-        RoleArn='arn:aws:iam::471112980832:role/SYMRKMSRole',  # Replace with your IAM role ARN
-        RoleSessionName='Session3'  # Unique session name
-    )
-    
-    
-    
     if not auth_header:
         return JsonResponse({'error': 'Missing authorization header'}, status=401)
 
@@ -431,15 +359,9 @@ def view_decrypted_file_bkp(request):
     if parts[0] != 'Bearer' or len(parts) != 2:
         return JsonResponse({'error': 'Invalid authentication header'}, status=401)
     
-    
-    secret = get_secret()
-    secret_dict = json.loads(secret)
-    region_name = secret_dict['AWS_REGION']
-    
-    
     token = parts[1]
     user_pool_id = os.getenv('USER_POOL_ID')
-    region = secret_dict['AWS_REGION']
+    region = os.getenv('AWS_REGION')
     
     # Verify the token
     try:
@@ -472,9 +394,7 @@ def view_decrypted_file_bkp(request):
     print("after file_id ")
     # Retrieve the S3 bucket name and region from environment variables
     bucket_name = os.getenv('BUCKET_NAME')
-    #region_name = os.getenv('AWS_REGION')
-    
-    
+    region_name = os.getenv('AWS_REGION')
 
     # Initialize S3 client
     s3_client = boto3.client('s3', region_name=region_name)
@@ -782,8 +702,6 @@ def list_google_drive_files(request):
 
 @csrf_exempt
 def upload_file(request):
-    
-  print("Inside upload to S3")  
   # Initialize AWS clients
   s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION'))
   sts_client = boto3.client('sts', region_name=os.getenv('AWS_DEFAULT_REGION'))    
@@ -802,45 +720,32 @@ def upload_file(request):
 
     # Replace with your actual Cognito user pool ID and region
     user_pool_id = os.getenv('USER_POOL_ID')
-    
+    region = os.getenv('AWS_REGION')
     
     # Replace with your bucket name and credentials (store securely)
-   # BUCKET_NAME = os.getenv('BUCKET_NAME') 
+    BUCKET_NAME = os.getenv('BUCKET_NAME') 
     AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
     AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
-    #AWS_SECRET_ACCESS_KEY = get_secret()
-    
-    #print("AWS_SECRET_ACCESS_KEY "+AWS_SECRET_ACCESS_KEY)
-    
+      
+    """Uploads a file to the S3 bucket."""
+    s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID, 
+                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
+    #try:
     # Assume role to get temporary credentials
     assumed_role = sts_client.assume_role(
         RoleArn='arn:aws:iam::471112980832:role/SYMRKMSRole',  # Replace with your IAM role ARN
         RoleSessionName='Session1'  # Unique session name
     )
-    
-    print('Access Key '+credentials['AccessKeyId'])
-    print('Secret Access Key '+credentials['SecretAccessKey'])
-    
-    
-    secret = get_secret()
-    secret_dict = json.loads(secret)
-    region = secret_dict['AWS_REGION']
-      
-    """Uploads a file to the S3 bucket."""
-    s3 = boto3.client('s3', aws_access_key_id='AWS_ACCESS_KEY_ID, 
-                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
-    #try:
-    
 
     # Extract temporary credentials
     credentials = assumed_role['Credentials']
 
     # Initialize AWS KMS client with temporary credentials
-    kms_client = boto3.client('kms',
-                              aws_access_key_id=credentials['AccessKeyId'],
-                              aws_secret_access_key=credentials['SecretAccessKey'],
-                              aws_session_token=credentials['SessionToken'],
-                              region_name=region)
+    # kms_client = boto3.client('kms',
+                              # aws_access_key_id=credentials['AccessKeyId'],
+                              # aws_secret_access_key=credentials['SecretAccessKey'],
+                              # aws_session_token=credentials['SessionToken'],
+                              # region_name=region)
 
 
 
@@ -923,74 +828,6 @@ def upload_file(request):
 @csrf_exempt
 def list_user_files(request):
     auth_header = request.META.get('HTTP_AUTHORIZATION')
-    sts_client = boto3.client('sts', region_name=os.getenv('AWS_DEFAULT_REGION')) 
-    
-    if not auth_header:
-        return JsonResponse({'error': 'Missing authorization header'}, status=401)
-    
-    token = auth_header.split()[1] if 'Bearer' in auth_header else auth_header
-    user_pool_id = os.getenv('USER_POOL_ID')
-    region = os.getenv('AWS_REGION')
-    
-    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
-    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
-
-    # Verify the JWT token
-    payload = verify_jwt_token(token, user_pool_id, region)
-    if not payload:
-        return JsonResponse({'error': 'Invalid token'}, status=401)
-
-    user_id = payload.get('username')  # Extract user ID from the token payload
-    
-    print('b4 assumed_role')
-    # Assume role to get temporary credentials
-    assumed_role = sts_client.assume_role(
-        RoleArn='arn:aws:iam::471112980832:role/SYMRKMSRole',  # Replace with your IAM role ARN
-        RoleSessionName='Session2'  # Unique session name
-    )
-    
-    print('assumed_role')
-    print('assumed_role') 
-    
-    
-    
-    #aws_access_key_id, aws_secret_access_key, aws_session_token = get_aws_credentials()
-    secret = get_secret()
-    secret_dict = json.loads(secret)
-    print(secret)
-    
-    # try:
-        # aws_access_key_id, aws_secret_access_key, aws_session_token = get_aws_credentials()
-    # except Exception as e:
-        # return JsonResponse({'error': f'Error retrieving AWS credentials: {str(e)}'}, status=500)
-
-    # Initialize S3 client
-    s3_client = boto3.client('s3', 
-                             aws_access_key_id=AWS_ACCESS_KEY_ID,
-                             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                            # aws_session_token=aws_session_token,
-                             region_name=region)
-
-    # Define the user's directory path in S3
-    user_prefix = f"{user_id}/"
-
-    # List objects in the user's directory
-    try:
-        response = s3_client.list_objects_v2(Bucket=os.getenv('BUCKET_NAME'), Prefix=user_prefix)
-    except Exception as e:
-        return JsonResponse({'error': f'Error listing S3 objects: {str(e)}'}, status=500)
-
-    # Extract file names
-    files = []
-    if 'Contents' in response:
-        for obj in response['Contents']:
-            files.append({'Key': obj['Key'], 'LastModified': obj['LastModified'].isoformat()})
-
-    return JsonResponse({'files': files})
-
-
-def list_user_files1(request):
-    auth_header = request.META.get('HTTP_AUTHORIZATION')
     if not auth_header:
         return JsonResponse({'error': 'Missing authorization header'}, status=401)
     
@@ -1004,13 +841,10 @@ def list_user_files1(request):
         return JsonResponse({'error': 'Invalid token'}, status=401)
 
     user_id = payload.get('username')  # Extract user ID from the token payload
-    
-    #AWS_SECRET_ACCESS_KEY = get_secret()
-    aws_access_key_id, aws_secret_access_key = get_aws_credentials()
 
     # Initialize S3 client
-    s3_client = boto3.client('s3', aws_access_key_id=aws_access_key_id,
-                             aws_secret_access_key=aws_secret_access_key,
+    s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
                              region_name=os.getenv('AWS_REGION'))
 
     # Define the user's directory path in S3
@@ -2227,8 +2061,4 @@ def investRecos(request):
                 'INVValues': INVValues
             }, indent=4) 
     else:
-        return JsonResponse({'error': 'Unsupported HTTP method'})             
-
-
-
-
+        return JsonResponse({'error': 'Unsupported HTTP method'})       
