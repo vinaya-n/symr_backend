@@ -886,7 +886,7 @@ def list_user_files(request):
 
 
     # List objects in the user's directory
-    response = s3_client.list_objects_v2(Bucket=os.getenv('BUCKET_NAME'), Prefix=user_prefix)
+    response = s3_client.list_objects_v2(Bucket="symr-user-bucket", Prefix=user_prefix)
 
     # Extract file names
     files = []
