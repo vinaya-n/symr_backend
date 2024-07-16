@@ -883,6 +883,10 @@ def list_user_files(request):
 
     # Define the user's directory path in S3
     user_prefix = f"{user_id}/"
+    
+    print("aws_access_key_id_f "+aws_access_key_id_f)
+    print("aws_secret_access_key_f "+aws_secret_access_key_f)
+    print("region_f "+region_f)
 
 
     # List objects in the user's directory
