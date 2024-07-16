@@ -872,7 +872,7 @@ def list_user_files(request):
         return JsonResponse({'error': 'Invalid token'}, status=401)
 
     user_id = payload.get('username')  # Extract user ID from the token payload
-    aws_access_key_id_f, aws_secret_access_key_f, region_f = get_aws_credentials()
+    #aws_access_key_id_f, aws_secret_access_key_f, region_f = get_aws_credentials()
     
 
     # Initialize S3 client
