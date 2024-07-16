@@ -847,9 +847,9 @@ def get_aws_credentials():
     secret_dict = json.loads(secret)
 
     # Extract credentials
-    aws_access_key_id = secret_dict.get('AWS_ACCESS_KEY_ID')
-    aws_secret_access_key = secret_dict.get('AWS_SECRET_ACCESS_KEY')
-    region = secret_dict.get('AWS_REGION')
+    aws_access_key_id = secret_dict['AWS_ACCESS_KEY_ID']
+    aws_secret_access_key = secret_dict['AWS_SECRET_ACCESS_KEY']
+    aws_region = secret_dict['AWS_REGION']
 
     return aws_access_key_id, aws_secret_access_key, region
 
