@@ -888,8 +888,6 @@ def list_user_files(request):
     user_prefix = f"{user_id}/"
     
     print("aws_access_key_id_f "+os.getenv('AWS_ACCESS_KEY_ID'))
-    print("aws_secret_access_key_f "+aws_secret_access_key_f)
-    print("region_f "+region_f)
 
 
     # List objects in the user's directory
