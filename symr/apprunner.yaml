@@ -27,10 +27,10 @@ run:
     - name: USER_POOL_ID
       value: "us-west-2_h8iTt5WdT"    
   secrets:
-    - name: AWS_SECRET_ACCESS_KEY
-      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
     - name: AWS_ACCESS_KEY_ID
       value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
+    - name: AWS_SECRET_ACCESS_KEY
+      value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"    
     - name: AWS_REGION
       value-from: "arn:aws:secretsmanager:us-west-2:471112980832:secret:AWS_Access-60VJdI"
     - name: AWS_KMS_KEY_ID
