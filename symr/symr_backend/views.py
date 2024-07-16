@@ -835,7 +835,8 @@ def get_aws_credentials():
     # Create a Secrets Manager client
     session = boto3.session.Session()
     client = session.client(service_name='secretsmanager', region_name=region_name)
-
+    get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+    print('get_secret_value_response '+get_secret_value_response)
     try:
         get_secret_value_response = client.get_secret_value(SecretId=secret_name)
     except ClientError as e:
@@ -884,7 +885,7 @@ def list_user_files(request):
     # Define the user's directory path in S3
     user_prefix = f"{user_id}/"
     
-    print("aws_access_key_id_f "+aws_access_key_id_f)
+    print("aws_access_key_id_f "+os.getenv('AWS_ACCESS_KEY_ID'))
     print("aws_secret_access_key_f "+aws_secret_access_key_f)
     print("region_f "+region_f)
 
