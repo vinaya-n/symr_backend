@@ -872,7 +872,7 @@ def list_user_files(request):
 
     user_id = payload.get('username')  # Extract user ID from the token payload
     aws_access_key_id_f, aws_secret_access_key_f, region_f = get_aws_credentials()
-     print("aws_access_key_id_os "+os.getenv('AWS_ACCESS_KEY_ID'))
+    print("aws_access_key_id_os "+os.getenv('AWS_ACCESS_KEY_ID'))
 
     # Initialize S3 client
     # s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
