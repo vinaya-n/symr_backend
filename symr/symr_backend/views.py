@@ -857,6 +857,7 @@ def get_aws_credentials():
 @csrf_exempt
 def list_user_files(request):
     auth_header = request.META.get('HTTP_AUTHORIZATION')
+    print('aws_access_key_id_f '+ os.getenv('AWS_ACCESS_KEY_ID'))
     if not auth_header:
         return JsonResponse({'error': 'Missing authorization header'}, status=401)
     
@@ -872,16 +873,16 @@ def list_user_files(request):
 
     user_id = payload.get('username')  # Extract user ID from the token payload
     aws_access_key_id_f, aws_secret_access_key_f, region_f = get_aws_credentials()
-    print('aws_access_key_id_f '+ os.getenv('AWS_ACCESS_KEY_ID'))
+    
 
     # Initialize S3 client
-    # s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                             # aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-                             # region_name=os.getenv('AWS_REGION'))
+    s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                             region_name=region)
     
-    s3_client = boto3.client('s3', aws_access_key_id=aws_access_key_id_f,
-                             aws_secret_access_key=aws_secret_access_key_f,
-                             region_name=region_f)
+    # s3_client = boto3.client('s3', aws_access_key_id=aws_access_key_id_f,
+                             # aws_secret_access_key=aws_secret_access_key_f,
+                             # region_name=region_f)
 
     # Define the user's directory path in S3
     user_prefix = f"{user_id}/"
