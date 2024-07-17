@@ -38,6 +38,19 @@ from django.core.files.storage import default_storage
 from google_auth_oauthlib.flow import Flow
 import logging
 from django.urls import reverse
+import logging
+import sys
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 #os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Only for development
 
@@ -857,7 +870,22 @@ def get_aws_credentials():
 @csrf_exempt
 def list_user_files(request):
     auth_header = request.META.get('HTTP_AUTHORIZATION')
-    print('aws_access_key_id_f '+ os.getenv('AWS_ACCESS_KEY_ID'))
+    # Get the environment variable
+    aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+    # Parse the JSON string
+    aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+    aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+    # Extract the value
+    aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+    aws_secret_access_key_e = aws_access_key_id_dict['AWS_SECRET_ACCESS_KEY']
+
+    print('aws_access_key_id_f ' + aws_access_key_id_e)
+    print('aws_secret_access_key_e ' + aws_secret_access_key_e)
+    
+    
     if not auth_header:
         return JsonResponse({'error': 'Missing authorization header'}, status=401)
     
@@ -876,8 +904,8 @@ def list_user_files(request):
     
 
     # Initialize S3 client
-    s3_client = boto3.client('s3', aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+    s3_client = boto3.client('s3', aws_access_key_id=aws_access_key_id_e,
+                             aws_secret_access_key=aws_secret_access_key_e,
                              region_name=region)
     
     # s3_client = boto3.client('s3', aws_access_key_id=aws_access_key_id_f,
@@ -887,11 +915,12 @@ def list_user_files(request):
     # Define the user's directory path in S3
     user_prefix = f"{user_id}/"
     
-    print("aws_access_key_id_f "+os.getenv('AWS_ACCESS_KEY_ID'))
+    
+    bucket = "symr-user-bucket"
 
 
     # List objects in the user's directory
-    response = s3_client.list_objects_v2(Bucket="symr-user-bucket", Prefix=user_prefix)
+    response = s3_client.list_objects(Bucket="symr-user-bucket", Prefix=user_prefix)
 
     # Extract file names
     files = []
