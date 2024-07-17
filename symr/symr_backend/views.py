@@ -880,9 +880,9 @@ def list_user_files(request):
 
     # Extract the value
     aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-    aws_secret_access_key_e = aws_access_key_id_dict['AWS_SECRET_ACCESS_KEY']
+    aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
 
-    print('aws_access_key_id_f ' + aws_access_key_id_e)
+    print('aws_access_key_id_e ' + aws_access_key_id_e)
     print('aws_secret_access_key_e ' + aws_secret_access_key_e)
     
     
