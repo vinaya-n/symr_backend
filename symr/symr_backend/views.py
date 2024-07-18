@@ -194,7 +194,18 @@ def encrypt_file_with_kms(file_content, credentials, region):
     :param region: AWS region where KMS key is located.
     :return: Dictionary containing the encrypted content, encrypted DEK, and IV.
     """
-    kms_key_id = os.getenv('AWS_KMS_KEY_ID')
+    
+    # Get the environment variable
+    aws_kms_key_json = os.getenv('AWS_KMS_KEY_ID')
+
+    # Parse the JSON string
+    aws_kms_key_dict = json.loads(aws_kms_key_json)
+
+    # Extract the value
+    aws_kms_key_e = aws_kms_key_dict['AWS_KMS_KEY_ID']
+    
+    kms_key_id = aws_kms_key_e
+    
     if not kms_key_id:
         raise ValueError("KMS key ID must be set in the environment variable AWS_KMS_KEY_ID")
 
@@ -720,9 +731,22 @@ def list_google_drive_files(request):
 
 @csrf_exempt
 def upload_file(request):
+  # Get the environment variable
+  aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+  aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+  # Parse the JSON string
+  aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+  aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+  # Extract the value
+  aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+  aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+  
+  region = os.getenv('AWS_REGION')
   # Initialize AWS clients
-  s3_client = boto3.client('s3', region_name=os.getenv('AWS_DEFAULT_REGION'))
-  sts_client = boto3.client('sts', region_name=os.getenv('AWS_DEFAULT_REGION'))    
+  s3_client = boto3.client('s3', region_name=os.getenv('AWS_REGION'))
+  sts_client = boto3.client('sts', region_name=os.getenv('AWS_REGION'))    
     
   if request.method == 'POST':
     auth_header = request.META.get('HTTP_AUTHORIZATION')
@@ -742,8 +766,8 @@ def upload_file(request):
     
     # Replace with your bucket name and credentials (store securely)
     BUCKET_NAME = os.getenv('BUCKET_NAME') 
-    AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID') 
-    AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY') 
+    AWS_ACCESS_KEY_ID = aws_access_key_id_e
+    AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
       
     """Uploads a file to the S3 bucket."""
     s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID, 
