@@ -768,7 +768,6 @@ def upload_file(request):
     BUCKET_NAME = os.getenv('BUCKET_NAME') 
     AWS_ACCESS_KEY_ID = aws_access_key_id_e
     AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
-    
     print("AWS_ACCESS_KEY_ID " + AWS_ACCESS_KEY_ID)
     print("AWS_SECRET_ACCESS_KEY " + AWS_SECRET_ACCESS_KEY)
       
