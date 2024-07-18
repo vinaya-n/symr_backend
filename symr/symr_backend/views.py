@@ -768,11 +768,9 @@ def upload_file(request):
     BUCKET_NAME = os.getenv('BUCKET_NAME') 
     AWS_ACCESS_KEY_ID = aws_access_key_id_e
     AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
-<<<<<<< HEAD
+    
     print("AWS_ACCESS_KEY_ID " + AWS_ACCESS_KEY_ID)
     print("AWS_SECRET_ACCESS_KEY " + AWS_SECRET_ACCESS_KEY)
-=======
->>>>>>> 9b15eb5d5c95f6780e651d2e621206ddb8cda538
       
     """Uploads a file to the S3 bucket."""
     s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID, 
