@@ -745,6 +745,10 @@ def upload_file(request):
   
   region = os.getenv('AWS_REGION')
   
+  BUCKET_NAME = os.getenv('BUCKET_NAME') 
+  AWS_ACCESS_KEY_ID = aws_access_key_id_e
+  AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
+  
   print("region is "+ region)
   print("AWS_ACCESS_KEY_ID " + AWS_ACCESS_KEY_ID)
   print("AWS_SECRET_ACCESS_KEY " + AWS_SECRET_ACCESS_KEY)
@@ -770,9 +774,7 @@ def upload_file(request):
     region = os.getenv('AWS_REGION')
     
     # Replace with your bucket name and credentials (store securely)
-    BUCKET_NAME = os.getenv('BUCKET_NAME') 
-    AWS_ACCESS_KEY_ID = aws_access_key_id_e
-    AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
+    
     
     
       
