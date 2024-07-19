@@ -257,6 +257,29 @@ def view_decrypted_file(request):
     user_pool_id = os.getenv('USER_POOL_ID')
     region = os.getenv('AWS_REGION')
     
+    # Get the environment variable
+    aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+    # Parse the JSON string
+    aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+    aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+    # Extract the value
+    aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+    aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+      
+    region = os.getenv('AWS_REGION')
+    
+    BUCKET_NAME = os.getenv('BUCKET_NAME') 
+    AWS_ACCESS_KEY_ID = aws_access_key_id_e
+    AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
+      
+    print("region is "+ region)
+    print("AWS_ACCESS_KEY_ID " + AWS_ACCESS_KEY_ID)
+    print("AWS_SECRET_ACCESS_KEY " + AWS_SECRET_ACCESS_KEY)
+    
+    
     # Verify the token
     try:
         payload = verify_jwt_token(token, user_pool_id, region)
@@ -287,6 +310,14 @@ def view_decrypted_file(request):
     print("after file_id ")
     bucket_name = os.getenv('BUCKET_NAME')
     region_name = os.getenv('AWS_REGION')
+    
+    # Initialize AWS clients
+    s3_client = boto3.client('s3', 
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY, 
+            region_name=region)
+    #sts_client = boto3.client('sts', region_name=os.getenv('AWS_REGION'))    
+    
 
     s3_client = boto3.client('s3', region_name=region_name)
     s3_key = f"{file_id}"
