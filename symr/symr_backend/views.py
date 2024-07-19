@@ -744,6 +744,11 @@ def upload_file(request):
   aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
   
   region = os.getenv('AWS_REGION')
+  
+  print("region is "+ region)
+  print("AWS_ACCESS_KEY_ID " + AWS_ACCESS_KEY_ID)
+  print("AWS_SECRET_ACCESS_KEY " + AWS_SECRET_ACCESS_KEY)
+  
   # Initialize AWS clients
   s3_client = boto3.client('s3', region_name=os.getenv('AWS_REGION'))
   sts_client = boto3.client('sts', region_name=os.getenv('AWS_REGION'))    
@@ -769,8 +774,7 @@ def upload_file(request):
     AWS_ACCESS_KEY_ID = aws_access_key_id_e
     AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
     
-    print("AWS_ACCESS_KEY_ID " + AWS_ACCESS_KEY_ID)
-    print("AWS_SECRET_ACCESS_KEY " + AWS_SECRET_ACCESS_KEY)
+    
       
     """Uploads a file to the S3 bucket."""
     s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID, 
