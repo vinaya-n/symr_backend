@@ -253,9 +253,12 @@ def view_decrypted_file(request):
     if parts[0] != 'Bearer' or len(parts) != 2:
         return JsonResponse({'error': 'Invalid authentication header'}, status=401)
     
+    
+
     token = parts[1]
     user_pool_id = os.getenv('USER_POOL_ID')
     region = os.getenv('AWS_REGION')
+    
     
     # Get the environment variable
     aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
@@ -319,7 +322,7 @@ def view_decrypted_file(request):
     #sts_client = boto3.client('sts', region_name=os.getenv('AWS_REGION'))    
     
 
-    s3_client = boto3.client('s3', region_name=region_name)
+    #s3_client = boto3.client('s3', region_name=region)
     s3_key = f"{file_id}"
     
     response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
