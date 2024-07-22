@@ -335,7 +335,8 @@ def view_decrypted_file(request):
     encrypted_encryption_key_base64 = metadata['encryption_key']
     encrypted_encryption_key = b64decode(encrypted_encryption_key_base64)
 
-    kms_client = boto3.client('kms', region_name=region_name)
+    kms_client = boto3.client('kms', region_name=region_name, aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
 
     try:
         response = kms_client.decrypt(
