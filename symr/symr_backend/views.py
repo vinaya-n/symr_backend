@@ -800,7 +800,7 @@ def upload_file(request):
         aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
         region_name=region
     )
-    
+  print("After initialize")  
   if request.method == 'POST':
     auth_header = request.META.get('HTTP_AUTHORIZATION')
     
@@ -832,6 +832,7 @@ def upload_file(request):
         RoleArn='arn:aws:iam::471112980832:role/SYMRKMSRole',  # Replace with your IAM role ARN
         RoleSessionName='Session1'  # Unique session name
     )
+    print("After assume role") 
 
     # Extract temporary credentials
     credentials = assumed_role['Credentials']
