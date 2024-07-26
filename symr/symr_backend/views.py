@@ -955,7 +955,7 @@ def list_user_files(request):
     aws_access_key_id_dict = json.loads(aws_access_key_id_json)
     aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-    Extract the value
+    #Extract the value
     aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
     aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
     
