@@ -824,7 +824,8 @@ def upload_file(request):
       
     """Uploads a file to the S3 bucket."""
     s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID, 
-                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
+                     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                     region_name=region)
     #try:
     # Assume role to get temporary credentials
     assumed_role = sts_client.assume_role(
