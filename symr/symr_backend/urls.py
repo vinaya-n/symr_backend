@@ -13,6 +13,7 @@ urlpatterns = [
     path('api/upload/', views.upload_file, name='upload_file'),
     path('api/list_files/', views.list_user_files, name='list_files'),
     path('api/files/view/', views.view_decrypted_file, name='view_decrypted_file'),
+    path('api/files/delete/', views.delete_file, name='delete_file'),
     path('get_csrf_token/', views.get_csrf_token, name='get_csrf_token'),
     path('test_cookie/', views.test_cookie, name='test_cookie'),
     path('api/google_drive_auth/', views.google_drive_auth, name='google_drive_auth'),

@@ -955,9 +955,12 @@ def list_user_files(request):
     aws_access_key_id_dict = json.loads(aws_access_key_id_json)
     aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-    # Extract the value
+    Extract the value
     aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
     aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+    
+    # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+    # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
 
     print('aws_access_key_id_e ' + aws_access_key_id_e)
     print('aws_secret_access_key_e ' + aws_secret_access_key_e)
@@ -1006,6 +1009,106 @@ def list_user_files(request):
             files.append({'Key': obj['Key'], 'LastModified': obj['LastModified'].isoformat()})
 
     return JsonResponse({'files': files})
+
+
+@csrf_exempt
+def delete_file(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+    auth_header = request.META.get('HTTP_AUTHORIZATION')
+    if not auth_header:
+        return JsonResponse({'error': 'Missing authorization header'}, status=401)
+
+    # Extract token from header (assuming 'Bearer' prefix)
+    parts = auth_header.split()
+    if parts[0] != 'Bearer' or len(parts) != 2:
+        return JsonResponse({'error': 'Invalid authentication header'}, status=401)
+    
+    token = parts[1]
+    user_pool_id = os.getenv('USER_POOL_ID')
+    region = os.getenv('AWS_REGION')
+    
+    # Get the environment variable
+    aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+    # Parse the JSON string
+    aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+    aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+    # Extract the value
+    aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+    aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+    
+    # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+    # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+      
+    region = os.getenv('AWS_REGION')
+    
+    BUCKET_NAME = os.getenv('BUCKET_NAME') 
+    AWS_ACCESS_KEY_ID = aws_access_key_id_e
+    AWS_SECRET_ACCESS_KEY = aws_secret_access_key_e
+      
+    print("region is "+ region)
+    print("AWS_ACCESS_KEY_ID " + AWS_ACCESS_KEY_ID)
+    print("AWS_SECRET_ACCESS_KEY " + AWS_SECRET_ACCESS_KEY)
+    
+    
+    # Verify the token
+    try:
+        payload = verify_jwt_token(token, user_pool_id, region)
+    except Exception as e:
+        return JsonResponse({'error': 'Token verification failed', 'message': str(e)}, status=401)
+    
+    # Access user information from the payload (e.g., username)
+    username = payload.get('username')
+    if not username:
+        return JsonResponse({'error': 'Invalid token payload'}, status=401)
+        
+    print("username "+username)    
+   
+    
+    request_body = json.loads(request.body)
+    file_id = request_body.get('file_id')
+    filename = request_body.get('file_name')
+    print("file_id "+file_id)
+    if not file_id:
+        return JsonResponse({'error': 'Missing file_id in request body'}, status=400)
+
+    try:
+        request_body = json.loads(request.body)
+        file_id = request_body.get('file_id')
+        print("file_id "+file_id)
+        if not file_id:
+            return JsonResponse({'error': 'Missing file_id in request body'}, status=400)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON in request body'}, status=400)
+    
+    print("after file_id ")
+    bucket_name = os.getenv('BUCKET_NAME')
+    region_name = os.getenv('AWS_REGION')
+    
+    # Initialize AWS clients
+    s3_client = boto3.client('s3', 
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY, 
+            region_name=region)
+    #sts_client = boto3.client('sts', region_name=os.getenv('AWS_REGION'))    
+    
+
+    #s3_client = boto3.client('s3', region_name=region)
+    s3_key = f"{file_id}"
+    
+    response = s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+    
+    try:
+        s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+        return JsonResponse({'message': f'File {filename} deleted successfully!'})
+    except boto3.exceptions.S3UploadFailedError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+    
+    
 
 
 @csrf_exempt
