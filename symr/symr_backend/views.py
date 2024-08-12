@@ -70,14 +70,26 @@ def fetch_data(request):
 
         if not user_name:
             return JsonResponse({'error': 'User name is required'}, status=400)
+            
+        #Get the environment variable
+        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # Parse the JSON string
+        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+        # Extract the value
+        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+
+        # aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 
         dynamodb = boto3.resource('dynamodb',
                                   region_name=os.getenv('AWS_REGION'),
-                                  aws_access_key_id=aws_access_key_id,
-                                  aws_secret_access_key=aws_secret_access_key)
+                                  aws_access_key_id=aws_access_key_id_e,
+                                  aws_secret_access_key=aws_secret_access_key_e)
         # table = dynamodb.Table('know_your_metrics')
         if request_from == "FHC":                          
             table = dynamodb.Table('know_your_metrics')
@@ -116,17 +128,17 @@ def save_to_dynamo(request):
 
         data = json.loads(request.body)
         
-        # Get the environment variable
-        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        #Get the environment variable
+        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # # Parse the JSON string
-        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # Parse the JSON string
+        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # # Extract the value
-        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+        # Extract the value
+        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
         
         # Add username and created date to the data
         data['user_name'] = data['username']
@@ -134,16 +146,16 @@ def save_to_dynamo(request):
         request_from = data['page']
         
         # AWS credentials from environment variables
-        aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
         region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
         # Initialize DynamoDB resource
         dynamodb = boto3.resource('dynamodb',
                                   region_name=region_name,
-                                  aws_access_key_id=aws_access_key_id,
-                                  aws_secret_access_key=aws_secret_access_key)
+                                  aws_access_key_id=aws_access_key_id_e,
+                                  aws_secret_access_key=aws_secret_access_key_e)
         if request_from == "FHC":                          
             table = dynamodb.Table('know_your_metrics')
         elif request_from == "AS":
