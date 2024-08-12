@@ -40,22 +40,271 @@ import logging
 from django.urls import reverse
 import logging
 import sys
+import csv
+from django.utils import timezone
+from datetime import *
+import datetime
 
 # Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# logging.basicConfig(
+    # level=logging.INFO,
+    # format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    # handlers=[
+        # logging.StreamHandler(sys.stdout)
+    # ]
+# )
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 #os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Only for development
 
+@csrf_exempt
+def fetch_data(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        user_name = data['username']
+        request_from = data['page']
+        
+        print("Inside fetch_data "+request_from)
+        print("user_name " +user_name)
+
+        if not user_name:
+            return JsonResponse({'error': 'User name is required'}, status=400)
+
+        aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        dynamodb = boto3.resource('dynamodb',
+                                  region_name=os.getenv('AWS_REGION'),
+                                  aws_access_key_id=aws_access_key_id,
+                                  aws_secret_access_key=aws_secret_access_key)
+        # table = dynamodb.Table('know_your_metrics')
+        if request_from == "FHC":                          
+            table = dynamodb.Table('know_your_metrics')
+        elif request_from == "AS":
+            table = dynamodb.Table('symr_allocate_savings')
+        elif request_from == "BH":
+            table = dynamodb.Table('symr_buy_home') 
+        elif request_from == "DM":
+            table = dynamodb.Table('symr_debt_mgmt')
+        elif request_from == "SFG":
+            table = dynamodb.Table('symr_save_for_goal')  
+        elif request_from == "VP":
+            table = dynamodb.Table('symr_create_budget')
+        elif request_from == "INV":
+            table = dynamodb.Table('symr_investing') 
+
+        response = table.get_item(Key={'user_name': user_name})
+        
+        print("After response")
+        print(response)
+
+        if 'Item' in response:
+            return JsonResponse(response['Item'])
+        else:
+            return JsonResponse({'error': 'User not found'}, status=404)
+    else:
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
 
 
+@csrf_exempt
+def save_to_dynamo(request):
+    if request.method == 'POST':
+        print("Inside save_to_dynamo")
+        # if not request.user.is_authenticated:
+        #     return JsonResponse({'error': 'User not authenticated'}, status=401)
+
+        data = json.loads(request.body)
+        
+        # Get the environment variable
+        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        # # Parse the JSON string
+        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+        # # Extract the value
+        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+        
+        # Add username and created date to the data
+        data['user_name'] = data['username']
+        data['created_date'] = datetime.datetime.now().isoformat()
+        request_from = data['page']
+        
+        # AWS credentials from environment variables
+        aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        region_name = os.getenv('AWS_REGION')
+        
+        print("before initializing")
+        # Initialize DynamoDB resource
+        dynamodb = boto3.resource('dynamodb',
+                                  region_name=region_name,
+                                  aws_access_key_id=aws_access_key_id,
+                                  aws_secret_access_key=aws_secret_access_key)
+        if request_from == "FHC":                          
+            table = dynamodb.Table('know_your_metrics')
+        elif request_from == "AS":
+            table = dynamodb.Table('symr_allocate_savings')
+        elif request_from == "BH":
+            table = dynamodb.Table('symr_buy_home') 
+        elif request_from == "DM":
+            table = dynamodb.Table('symr_debt_mgmt')
+        elif request_from == "SFG":
+            table = dynamodb.Table('symr_save_for_goal')  
+        elif request_from == "VP":
+            table = dynamodb.Table('symr_create_budget')
+        elif request_from == "INV":
+            table = dynamodb.Table('symr_investing')        
+        
+        # Check if the record exists
+        response = table.get_item(
+            Key={
+                'user_name': data['user_name']
+            }
+        )
+
+        if 'Item' in response:
+            # Assuming `data` contains all fields that you might want to update
+            update_expression = []
+            expression_attribute_names = {}
+            expression_attribute_values = {}
+            print('Inside update logic')
+
+            # Construct the update expression based on the fields in `data`
+            for key, value in data.items():
+                if key not in ['user_name', 'created_date']:  # Exclude fields that should not be updated
+                    placeholder_name = f'#{key}'
+                    update_expression.append(f'{placeholder_name} = :{key}')
+                    expression_attribute_names[placeholder_name] = key
+                    expression_attribute_values[f':{key}'] = value
+
+            if update_expression:
+                # Join the parts of the update expression
+                update_expression_str = 'set ' + ', '.join(update_expression)
+
+                # Add the current date-time to the update expression
+                #update_expression_str += ', #updated_at = :updated_at'
+                #expression_attribute_names['#updated_at'] = 'updated_at'
+                #expression_attribute_values[':updated_at'] = datetime.datetime.now().isoformat()
+                
+                # Update the item in DynamoDB
+                table.update_item(
+                    Key={'user_name': data['user_name']},
+                    UpdateExpression=update_expression_str,
+                    ExpressionAttributeNames=expression_attribute_names,
+                    ExpressionAttributeValues=expression_attribute_values
+                )
+           
+            return JsonResponse({'message': 'Record updated successfully'})
+        
+        else:
+            # Record does not exist, insert it
+            data['created_at'] = datetime.datetime.now().isoformat()  # Add creation date
+            table.put_item(Item=data)
+            return JsonResponse({'message': 'Record inserted successfully'})
+        
+        print("before Save data to DynamoDB")
+        # # Save data to DynamoDB
+        # response = table.put_item(Item=data)
+        
+        print("after Save data to DynamoDB")
+        
+        return JsonResponse({'message': 'Data saved successfully', 'response': response})
+    else:
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+
+
+def download_cognito_users(request):
+    # Get the environment variable
+    # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+    # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+    # # Parse the JSON string
+    # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+    # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+    # # Extract the value
+    # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+    # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+    
+    aws_access_key_id_json_e = os.getenv('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key_json_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+    
+    # Initialize the Cognito client
+    client = boto3.client(
+        'cognito-idp', 
+        region_name=os.getenv('AWS_REGION'), 
+        aws_access_key_id=aws_access_key_id_json_e, 
+        aws_secret_access_key=aws_secret_access_key_json_e
+    )
+    
+    user_pool_id = os.getenv('USER_POOL_ID')
+    
+    users = []
+    response = client.list_users(UserPoolId=user_pool_id)
+    
+    while True:
+        users.extend(response['Users'])
+        if 'PaginationToken' in response:
+            response = client.list_users(UserPoolId=user_pool_id, PaginationToken=response['PaginationToken'])
+        else:
+            break
+    
+    # Create the HttpResponse object with the appropriate CSV header
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="cognito_users.csv"'
+    
+    writer = csv.writer(response)
+    # Write the header
+    writer.writerow(['Username', 'Email'])
+    
+    # Write the user data
+    for user in users:
+        username = user['Username']
+        email = next((attr['Value'] for attr in user['Attributes'] if attr['Name'] == 'email'), 'N/A')
+        writer.writerow([username, email])
+    
+    return response
+
+
+
+# Function to list users
+def list_users():
+    user_pool_id = os.getenv('USER_POOL_ID')
+    region = os.getenv('AWS_REGION')
+    client = boto3.client('cognito-idp', region_name=region)
+    users = []
+    response = client.list_users(UserPoolId=user_pool_id)
+    users.extend(response['Users'])
+
+    while 'PaginationToken' in response:
+        response = client.list_users(UserPoolId=user_pool_id, PaginationToken=response['PaginationToken'])
+        users.extend(response['Users'])
+
+    return users
+
+def list_users_api(request):
+    
+    print("Inside list_users_api")
+    
+    # Fetch user information
+    user_data = list_users()
+
+    # Extract usernames and email addresses
+    user_info = [{'Username': user['Username'], 'Email': next((attr['Value'] for attr in user['Attributes'] if attr['Name'] == 'email'), None)} for user in user_data]
+
+    # Output the user information
+    with open('users.csv', 'w') as f:
+        f.write('Username,Email\n')
+        for user in user_info:
+            f.write(f"{user['Username']},{user['Email']}\n")
+    print("User information has been saved to users.csv")
+        
+        
 
 def test_cookie(request):   
     if not request.COOKIES.get('team'):
