@@ -60,6 +60,7 @@ import datetime
 
 @csrf_exempt
 def fetch_data(request):
+    print("Inside fetch_data ")
     if request.method == 'POST':
         data = json.loads(request.body)
         user_name = data['username']
@@ -83,15 +84,17 @@ def fetch_data(request):
         aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
         aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
 
-        # aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        print("inside request_from FHC") 
 
         dynamodb = boto3.resource('dynamodb',
                                   region_name=os.getenv('AWS_REGION'),
                                   aws_access_key_id=aws_access_key_id_e,
                                   aws_secret_access_key=aws_secret_access_key_e)
         # table = dynamodb.Table('know_your_metrics')
-        if request_from == "FHC":                          
+        if request_from == "FHC":     
+            print("inside request_from FHC")    
             table = dynamodb.Table('know_your_metrics')
         elif request_from == "AS":
             table = dynamodb.Table('symr_allocate_savings')
@@ -146,8 +149,8 @@ def save_to_dynamo(request):
         request_from = data['page']
         
         # AWS credentials from environment variables
-        # aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
         region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
