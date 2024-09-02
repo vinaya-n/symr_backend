@@ -180,46 +180,85 @@ def save_to_dynamo(request):
                 'user_name': data['user_name']
             }
         )
+        existing_item = table.get_item(Key={'user_name': data['user_name']}).get('Item')
 
-        if 'Item' in response:
-            # Assuming `data` contains all fields that you might want to update
+        if existing_item:
+            # Update the existing item with new values from data
+            for key, value in data.items():
+                if key not in ['user_name', 'created_date']:
+                    existing_item[key] = value
+            
+            # Construct the update expression
             update_expression = []
             expression_attribute_names = {}
             expression_attribute_values = {}
-            print('Inside update logic')
 
-            # Construct the update expression based on the fields in `data`
-            for key, value in data.items():
-                if key not in ['user_name', 'created_date']:  # Exclude fields that should not be updated
+            for key, value in existing_item.items():
+                if key not in ['user_name', 'created_date']:
                     placeholder_name = f'#{key}'
                     update_expression.append(f'{placeholder_name} = :{key}')
                     expression_attribute_names[placeholder_name] = key
                     expression_attribute_values[f':{key}'] = value
 
             if update_expression:
-                # Join the parts of the update expression
                 update_expression_str = 'set ' + ', '.join(update_expression)
-
-                # Add the current date-time to the update expression
-                #update_expression_str += ', #updated_at = :updated_at'
-                #expression_attribute_names['#updated_at'] = 'updated_at'
-                #expression_attribute_values[':updated_at'] = datetime.datetime.now().isoformat()
                 
-                # Update the item in DynamoDB
+                print("update_expression_str is "+update_expression_str)
+
                 table.update_item(
                     Key={'user_name': data['user_name']},
                     UpdateExpression=update_expression_str,
                     ExpressionAttributeNames=expression_attribute_names,
                     ExpressionAttributeValues=expression_attribute_values
                 )
-           
+
             return JsonResponse({'message': 'Record updated successfully'})
-        
         else:
-            # Record does not exist, insert it
-            data['created_at'] = datetime.datetime.now().isoformat()  # Add creation date
+            # Insert logic (unchanged)
+            data['created_at'] = datetime.datetime.now().isoformat()
             table.put_item(Item=data)
             return JsonResponse({'message': 'Record inserted successfully'})
+
+        # if 'Item' in response:
+            # # Assuming `data` contains all fields that you might want to update
+            # update_expression = []
+            # expression_attribute_names = {}
+            # expression_attribute_values = {}
+            # print('Inside update logic')
+
+            # # Construct the update expression based on the fields in `data`
+            # for key, value in data.items():
+                # print("key is "+key)
+                # if key not in ['user_name', 'created_date']:  # Exclude fields that should not be updated
+                    # placeholder_name = f'#{key}'
+                    # update_expression.append(f'{placeholder_name} = :{key}')
+                    # expression_attribute_names[placeholder_name] = key
+                    # expression_attribute_values[f':{key}'] = value
+
+            # if update_expression:
+                # # Join the parts of the update expression
+                # update_expression_str = 'set ' + ', '.join(update_expression)
+
+                # # Add the current date-time to the update expression
+                # #update_expression_str += ', #updated_at = :updated_at'
+                # #expression_attribute_names['#updated_at'] = 'updated_at'
+                # #expression_attribute_values[':updated_at'] = datetime.datetime.now().isoformat()
+                
+                # # Update the item in DynamoDB
+                # table.update_item(
+                    # Key={'user_name': data['user_name']},
+                    # UpdateExpression=update_expression_str,
+                    # ExpressionAttributeNames=expression_attribute_names,
+                    # ExpressionAttributeValues=expression_attribute_values
+                # )
+           
+            # return JsonResponse({'message': 'Record updated successfully'})
+        
+        # else:
+            # # Record does not exist, insert it
+            # data['created_at'] = datetime.datetime.now().isoformat()  # Add creation date
+            # table.put_item(Item=data)
+            # return JsonResponse({'message': 'Record inserted successfully'})
         
         print("before Save data to DynamoDB")
         # # Save data to DynamoDB
