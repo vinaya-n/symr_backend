@@ -130,6 +130,8 @@ def save_to_dynamo(request):
         #     return JsonResponse({'error': 'User not authenticated'}, status=401)
 
         data = json.loads(request.body)
+        emis = data.get('emis', [])
+        checkingAccounts = data.get('checkingAccounts', [])
         
         #Get the environment variable
         aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
@@ -151,7 +153,7 @@ def save_to_dynamo(request):
         # AWS credentials from environment variables
         # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
         # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
-        region_name = os.getenv('AWS_REGION')
+        # region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
         # Initialize DynamoDB resource
@@ -172,7 +174,12 @@ def save_to_dynamo(request):
         elif request_from == "VP":
             table = dynamodb.Table('symr_create_budget')
         elif request_from == "INV":
-            table = dynamodb.Table('symr_investing')        
+            table = dynamodb.Table('symr_investing') 
+        # Define the main table based on the request source
+        if request_from == "fin_reboot":
+            table = dynamodb.Table('financial_reboot_common')
+            emis_table = dynamodb.Table('financial_reboot_emis')  # Separate table for emis entries
+            checkingAccounts_table = dynamodb.Table('financial_reboot_acc')  # Separate table for checkingAccounts entries
         
         # Check if the record exists
         response = table.get_item(
@@ -211,60 +218,89 @@ def save_to_dynamo(request):
                     ExpressionAttributeNames=expression_attribute_names,
                     ExpressionAttributeValues=expression_attribute_values
                 )
-
+                print("EMIS are")
+                print(emis)
+            
+            ### Handle emis array ###
+            if 'emis' in data and isinstance(data['emis'], list):
+                for emi in data['emis']:
+                    print("emi entry update")
+                    print(emi)
+                    emi_entry = {
+                        'user_name': data['user_name'],
+                        'emi_id': str(emi.get('id')),  # Use a unique ID for each EMI item
+                        'value': emi.get('value', 0),  # Default value to 0 if not provided
+                        'created_date': data['created_date']
+                    }
+                    print("emi_entry")
+                    print(emi_entry)
+                    # Insert or update each EMI in the separate emis table
+                    emis_table.put_item(Item=emi_entry)
+            
+            ### Handle checkingAccounts array ###
+            if 'checkingAccounts' in data and isinstance(data['checkingAccounts'], list):
+                for checkingAccount in data['checkingAccounts']:
+                    print("checkingAccounts entry update")
+                    print(checkingAccounts)
+                    checkingAccount_entry = {
+                        'user_name': data['user_name'],
+                        'checkingAccounts_id': str(checkingAccount.get('id')),  # Use a unique ID for each EMI item
+                        'value': checkingAccount.get('value', 0),  # Default value to 0 if not provided
+                        'created_date': data['created_date']
+                    }
+                    print("checkingAccount_entry")
+                    print(checkingAccount_entry)
+                    # Insert or update each EMI in the separate emis table
+                    checkingAccounts_table.put_item(Item=checkingAccount_entry)    
+                
             return JsonResponse({'message': 'Record updated successfully'})
         else:
             # Insert logic (unchanged)
             data['created_at'] = datetime.datetime.now().isoformat()
             table.put_item(Item=data)
             return JsonResponse({'message': 'Record inserted successfully'})
-
-        # if 'Item' in response:
-            # # Assuming `data` contains all fields that you might want to update
-            # update_expression = []
-            # expression_attribute_names = {}
-            # expression_attribute_values = {}
-            # print('Inside update logic')
-
-            # # Construct the update expression based on the fields in `data`
-            # for key, value in data.items():
-                # print("key is "+key)
-                # if key not in ['user_name', 'created_date']:  # Exclude fields that should not be updated
-                    # placeholder_name = f'#{key}'
-                    # update_expression.append(f'{placeholder_name} = :{key}')
-                    # expression_attribute_names[placeholder_name] = key
-                    # expression_attribute_values[f':{key}'] = value
-
-            # if update_expression:
-                # # Join the parts of the update expression
-                # update_expression_str = 'set ' + ', '.join(update_expression)
-
-                # # Add the current date-time to the update expression
-                # #update_expression_str += ', #updated_at = :updated_at'
-                # #expression_attribute_names['#updated_at'] = 'updated_at'
-                # #expression_attribute_values[':updated_at'] = datetime.datetime.now().isoformat()
-                
-                # # Update the item in DynamoDB
-                # table.update_item(
-                    # Key={'user_name': data['user_name']},
-                    # UpdateExpression=update_expression_str,
-                    # ExpressionAttributeNames=expression_attribute_names,
-                    # ExpressionAttributeValues=expression_attribute_values
-                # )
-           
-            # return JsonResponse({'message': 'Record updated successfully'})
         
-        # else:
-            # # Record does not exist, insert it
-            # data['created_at'] = datetime.datetime.now().isoformat()  # Add creation date
-            # table.put_item(Item=data)
-            # return JsonResponse({'message': 'Record inserted successfully'})
+        
+        ### FOR FINANCIAL REBOOT SINCE IT DEALS WITH MULTIPLE TABLES ####
         
         print("before Save data to DynamoDB")
         # # Save data to DynamoDB
         # response = table.put_item(Item=data)
+        print("EMIS are")
+        print(emis)
+        ### Handle emis array ###
+        if 'emis' in data and isinstance(data['emis'], list):
+            print("emi_entry")
+            for emi in data['emis']:
+                print("emi_entry insert")
+                print(emi)
+                emi_entry = {
+                    'user_name': data['user_name'],
+                    'emi_id': str(emi.get('id')),  # Use a unique ID for each EMI item
+                    'value': emi.get('value', 0),  # Default value to 0 if not provided
+                    'created_date': data['created_date']
+                }
+                # Insert or update each EMI in the separate emis table
+                emis_table.put_item(Item=emi_entry)
+        
+        ### Handle emis array ###
+        if 'checkingAccounts' in data and isinstance(data['checkingAccounts'], list):
+            print("checkingAccount_entry")
+            for checkingAccount in data['checkingAccounts']:
+                print("checkingAccount_entry insert")
+                print(checkingAccount_entr)
+                checkingAccount_entry = {
+                    'user_name': data['user_name'],
+                    'checkingAccount_id': str(checkingAccount.get('id')),  # Use a unique ID for each EMI item
+                    'value': checkingAccount.get('value', 0),  # Default value to 0 if not provided
+                    'created_date': data['created_date']
+                }
+                # Insert or update each EMI in the separate emis table
+                checkingAccounts_table.put_item(Item=checkingAccount_entry)    
+        
         
         print("after Save data to DynamoDB")
+        
         
         return JsonResponse({'message': 'Data saved successfully', 'response': response})
     else:
@@ -1508,7 +1544,7 @@ def commonResults(request):
         T2 = 0 if T2 is None or T2 == ''else float(T2)
 
         T3 = formData.get('T3', 0)  #Total Debt
-        T3 = 1 if T3 is None or T3 == '' else float(T3)
+        T3 = 1 if T3 is None or T3 == '' or T3 == 0 else float(T3)
 
         T4 = formData.get('T4', 0)  #Max APR for Debt
         T4 = 0 if T4 is None or T4 == '' else T4
