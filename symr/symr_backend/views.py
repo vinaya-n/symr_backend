@@ -108,6 +108,8 @@ def fetch_data(request):
             table = dynamodb.Table('symr_create_budget')
         elif request_from == "INV":
             table = dynamodb.Table('symr_investing') 
+        elif request_from == "Fin_Reboot":
+            table = dynamodb.Table('financial_reboot_common') 
 
         response = table.get_item(Key={'user_name': user_name})
         
@@ -121,19 +123,10 @@ def fetch_data(request):
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=400)
 
-
-@csrf_exempt
-def save_to_dynamo(request):
-    if request.method == 'POST':
-        print("Inside save_to_dynamo")
-        # if not request.user.is_authenticated:
-        #     return JsonResponse({'error': 'User not authenticated'}, status=401)
-
-        data = json.loads(request.body)
-        emis = data.get('emis', [])
-        checkingAccounts = data.get('checkingAccounts', [])
-        
-        #Get the environment variable
+def fetch_data_from_dynamodb(table_name, user_id):
+    try:
+        # Initialize the DynamoDB client
+          #Get the environment variable
         aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
         aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
@@ -143,7 +136,472 @@ def save_to_dynamo(request):
 
         # Extract the value
         aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        dynamodb = boto3.resource('dynamodb',
+                                  region_name=os.getenv('AWS_REGION'),
+                                  aws_access_key_id=aws_access_key_id_e,
+                                  aws_secret_access_key=aws_secret_access_key_e)
+                                  
+        table = dynamodb.Table(table_name)
+
+        # Query the table using user_id (assuming this is the primary key)
+        response = table.get_item(Key={'user_name': user_id})
+        print("response")
+        print(response)
+
+        if 'Item' not in response:
+            return None, "User data not found"
+
+        return response['Item'], None
+    except ClientError as e:
+        return None, f"DynamoDB Error: {e.response['Error']['Message']}"
+
+
+
+@csrf_exempt
+def schedule_sequential(request):
+    # Ensure the request is a POST request
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
+
+    try:
+        # Parse JSON data from the request body
+        data = json.loads(request.body.decode('utf-8'))
+        
+        user_id = data.get("userName")
+        print("Inside schedule_sequential ")
+        
+        goals = data.get("goals", [])
+        
+        if not user_id:
+            return JsonResponse({"error": "user_id is required"}, status=400)
+
+        # Fetch data from DynamoDB
+        table_name = "financial_reboot_inputs"
+        dynamo_data, error = fetch_data_from_dynamodb(table_name, user_id)
+        
+        if error:
+            return JsonResponse({"error": error}, status=500)
+
+        # Extract required fields
+        M1 = float(dynamo_data.get("M1", 0))  # Default to 0 if key is missing
+        M2 = float(dynamo_data.get("M2", 0))
+        M3 = float(dynamo_data.get("M3", 0))
+        M4 = float(dynamo_data.get("M4", 0))
+
+        # Calculate monthly savings
+        monthly_savings = M1 - (M2 + M3 + M4)
+        
+        print("monthly_savings " + str(monthly_savings))
+        
+        if monthly_savings is None:
+            return JsonResponse({"error": "monthlySavings is required"}, status=400)
+
+        # Call the scheduling logic (use your implementation here)
+        schedule = sequential_scheduler(goals, monthly_savings)
+        
+        # Append monthly_savings to the response
+        response = {
+            "monthlySavings": monthly_savings,
+            "schedule": schedule
+        }
+
+        return JsonResponse(response, safe=False)  # Safe=False allows returning a list as JSON
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON input"}, status=400)
+
+
+def sequential_scheduler(goals, monthly_savings):
+    """
+    Adjusts the scheduling logic so that each goal's schedule starts after the previous goal is completed.
+    Takes into account the priority and time available to complete the goal.
+    """
+    # Sort goals based on priority
+    goals.sort(key=lambda goal: goal.get('priority', 1))  # Default priority 1 if not provided
+    schedule = []
+    current_month = 0  # Tracks when the last goal was completed
+
+    for goal in goals:
+        # Retrieve goal details
+        amount_required = goal.get('amountRequired', 0)
+        amount_allocated = goal.get('amountAllocated', 0)
+        time_available = goal.get('timeAvailable', float('inf'))  # Default to infinity if not provided
+
+        # Calculate months required to achieve this goal
+        remaining_amount = max(0, amount_required - amount_allocated)
+        months_to_complete = (remaining_amount / monthly_savings) if monthly_savings > 0 else float('inf')
+        months_to_complete = max(0, int(months_to_complete))  # Ensure no negative months
+
+        # Adjust months_to_complete to the time available for the goal
+        # if months_to_complete > time_available:
+            # # If the time available is less than the months required, we'll have to delay the start of the goal
+            # months_to_complete = time_available
+
+        # Schedule this goal
+        start_month = current_month + 1  # Start after the previous goal's completion
+        completion_month = start_month + months_to_complete - 1
+
+        schedule.append({
+            "process": "sequential",
+            "goal": goal['goal'],
+            "amount_required": amount_required,
+            "amount_allocated": amount_allocated,
+            "start_month": start_month,
+            "completion_month": completion_month,
+            "time_in_months": months_to_complete,
+            "priority": goal.get('priority', 1),  # Include the priority in the schedule
+        })
+
+        # Update the current_month to this goal's completion month
+        current_month = completion_month
+
+    return schedule
+
+
+@csrf_exempt
+def schedule_parallel(request):
+    # Ensure the request is a POST request
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
+
+    try:
+        # Parse JSON data from the request body
+        data = json.loads(request.body.decode('utf-8'))
+        
+        user_id = data.get("userName")
+        goals = data.get("goals", [])
+
+        if not user_id:
+            return JsonResponse({"error": "user_id is required"}, status=400)
+
+        # Fetch data from DynamoDB
+        table_name = "financial_reboot_inputs"
+        dynamo_data, error = fetch_data_from_dynamodb(table_name, user_id)
+        
+        if error:
+            return JsonResponse({"error": error}, status=500)
+
+        # Extract required fields
+        M1 = float(dynamo_data.get("M1", 0))  # Default to 0 if key is missing
+        M2 = float(dynamo_data.get("M2", 0))
+        M3 = float(dynamo_data.get("M3", 0))
+        M4 = float(dynamo_data.get("M4", 0))
+
+        # Calculate monthly savings
+        monthly_savings = M1 - (M2 + M3 + M4)
+
+        if monthly_savings <= 0:
+            return JsonResponse({"error": "Monthly savings must be greater than zero"}, status=400)
+
+        # Call the prioritization and scheduling logic
+        schedule = parallel_scheduler(goals, monthly_savings)
+        
+        print("schedule 1")
+        print(schedule)
+        response = {
+            "monthlySavings": monthly_savings,
+            "schedule": schedule
+        }
+
+        return JsonResponse(response, safe=False)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON input"}, status=400)
+
+
+def parallel_scheduler(goals, monthly_savings):
+    """
+    Prioritize and allocate monthly savings to goals based on priority.
+    """
+    # Sort goals by priority
+    sorted_goals = sorted(goals, key=lambda x: x.get("priority", float("inf")))
+
+    # Calculate weights based on priority
+    total_weight = sum(1 / goal["priority"] for goal in sorted_goals if goal["priority"] > 0)
+
+    schedule = []
+    for goal in sorted_goals:
+        print("Processing Goal:", goal)
+
+        # Initialize goal details
+        amount_required = goal.get("amountRequired", 0)
+        amount_allocated = goal.get("amountAllocated", 0)
+        remaining_amount = max(0, amount_required - amount_allocated)
+
+        print("Initial Remaining Amount:", remaining_amount)
+
+        weight = (1 / goal["priority"]) / total_weight
+        monthly_allocation = weight * monthly_savings
+        months_required = 0
+
+        # Loop until the goal is achieved
+        while remaining_amount > 0:
+            months_required += 1
+            remaining_amount -= monthly_allocation
+
+            # print(f"Month {months_required}: Remaining Amount = {remaining_amount:.2f}")
+
+            # If it overshoots, stop
+            if months_required > 1000:  # Safety net for infinite loops
+                months_required = "Not Achievable"
+                break
+        print("amount_required")
+        print(amount_required)
+        
+        print("amount_allocated")
+        print(amount_allocated)
+        
+        print("months_required")
+        print(months_required)
+        
+        print("monthly_allocation")
+        print(monthly_allocation)
+        
+        # Append results for this goal
+        schedule.append({
+            "process": "parallel",
+            "Goal Name": goal.get("goal", "Unknown"),
+            "Amount Required": amount_required,
+            "Amount Allocated": amount_allocated,
+            "Time Required (Months)": months_required,
+            "Monthly Allocation": monthly_allocation,
+        })
+        
+        print("schedule")
+        print(schedule)
+
+    return schedule
+
+
+
+@csrf_exempt
+def schedule_parallel1(request):
+    # Ensure the request is a POST request
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
+
+    try:
+        # Parse JSON data from the request body
+        data = json.loads(request.body.decode('utf-8'))
+        
+        user_id = data.get("userName")
+        print("Inside schedule_parallel")
+        
+        goals = data.get("goals", [])
+        
+        if not user_id:
+            return JsonResponse({"error": "user_id is required"}, status=400)
+
+        # Fetch data from DynamoDB
+        table_name = "financial_reboot_inputs"
+        dynamo_data, error = fetch_data_from_dynamodb(table_name, user_id)
+        
+        if error:
+            return JsonResponse({"error": error}, status=500)
+
+        # Extract required fields
+        M1 = float(dynamo_data.get("M1", 0))  # Default to 0 if key is missing
+        M2 = float(dynamo_data.get("M2", 0))
+        M3 = float(dynamo_data.get("M3", 0))
+        M4 = float(dynamo_data.get("M4", 0))
+
+        # Calculate monthly savings
+        monthly_savings = M1 - (M2 + M3 + M4)
+        
+        print("monthly_savings " + str(monthly_savings))
+        
+        if monthly_savings is None:
+            return JsonResponse({"error": "monthlySavings is required"}, status=400)
+
+        # Call the parallel scheduling logic
+        schedule = parallel_scheduler(goals, monthly_savings)
+        
+        # Append monthly_savings to the response
+        response = {
+            "monthlySavings": monthly_savings,
+            "schedule": schedule
+        }
+
+        return JsonResponse(response, safe=False)  # Safe=False allows returning a list as JSON
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON input"}, status=400)
+
+
+def parallel_scheduler1(goals, monthly_savings):
+    """
+    Schedules goals in parallel based on priority and available monthly savings.
+    Goals with higher priority are scheduled first and the monthly savings is distributed accordingly.
+    """
+        # Sort goals by priority (lower numbers = higher priority)
+    goals = sorted(goals, key=lambda x: x["priority"])
+    
+    print("goals")
+    print(goals)
+    
+    remaining_goals = [
+        {
+            "Name": goal["goal"],
+            "Amount": goal["amountRequired"] - goal["amountAllocated"],
+            "Time": goal["timeAvailable"] * 12,  # Convert years to months
+            "Priority": goal["priority"],
+            "Saved": 0,
+        }
+        for goal in goals
+    ]
+    
+    current_month = 0
+    schedule = []
+    
+    print("remaining goals")
+    print(remaining_goals)
+    
+    while remaining_goals:
+        # Calculate total weight (based on priority)
+        active_goals = [goal for goal in remaining_goals if goal["Saved"] < goal["Amount"]]
+        if not active_goals:
+            print("No active goals left.")
+            break  # Exit if there are no active goals
+        
+        total_weight = sum(1 / goal["Priority"] for goal in active_goals)
+        print(f"Current Month: {current_month}")
+        print(f"Active Goals: {active_goals}")
+        print(f"Total Weight: {total_weight}")
+
+        # Allocate savings based on weight
+        for goal in active_goals:
+            weight = (1 / goal["Priority"]) / total_weight
+            allocation = weight * monthly_savings
+            goal["Saved"] += allocation
+            goal["Time"] -= 1  # Decrease remaining time
+            
+            print(f"Goal: {goal['Name']}, Saved: {goal['Saved']}, Required: {goal['Amount']}, Time Remaining: {goal['Time']}")
+            
+            # Mark goal as complete if it reaches its target
+            if goal["Saved"] >= goal["Amount"]:
+                print(f"Goal {goal['Name']} completed in month {current_month + 1}.")
+                goal["Completion Month"] = current_month + 1
+                schedule.append({
+                    "Goal": goal["Name"],
+                    "Amount": goal["Amount"],
+                    "Priority": goal["Priority"],
+                    "Completion Month": goal["Completion Month"]
+                })
+        
+        # Remove goals that are complete or out of time
+        remaining_goals = [
+            goal for goal in remaining_goals 
+            if goal["Time"] > 0 and goal["Saved"] < goal["Amount"]
+        ]
+        
+        print(f"Remaining Goals: {remaining_goals}")
+        current_month += 1
+        # print("schedule")
+        # print(schedule)
+    return schedule
+
+
+
+def schedule_sequential123(goals, monthly_savings):
+    """
+    Calculate the best schedule to achieve all goals sequentially.
+
+    Args:
+        goals (list): A list of goals where each goal is a dictionary containing:
+            - "goal" (str): Name of the goal.
+            - "amountRequired" (float): Total amount required for the goal.
+            - "amountAllocated" (float): Amount already allocated.
+            - "priority" (int): Priority of the goal (1 = highest priority).
+        monthly_savings (float): Savings available per month to allocate towards goals.
+
+    Returns:
+        list: A list of goals with scheduling details including:
+            - "goal" (str): Goal name.
+            - "startMonth" (str): Start month of the goal.
+            - "completionDate" (str): Completion date of the goal.
+            - "monthsToComplete" (int): Number of months required to complete the goal.
+            - "yearsToComplete" (float): Time in years to complete the goal.
+    """
+    # Sort goals by priority
+    goals = sorted(goals, key=lambda x: x["priority"])
+    
+    # Current date and initialization
+    current_date = datetime.now()
+    schedule = []
+
+    for goal in goals:
+        goal_name = goal["goal"]
+        amount_needed = goal["amountRequired"] - goal["amountAllocated"]
+
+        if amount_needed <= 0:
+            schedule.append({
+                "goal": goal_name,
+                "startMonth": current_date.strftime("%B %Y"),
+                "completionDate": current_date.strftime("%B %Y"),
+                "monthsToComplete": 0,
+                "yearsToComplete": 0
+            })
+            continue
+
+        # Calculate time required to complete this goal
+        months_to_complete = -(-amount_needed // monthly_savings)  # Ceiling division for months
+        completion_date = current_date + timedelta(days=30 * months_to_complete)
+
+        # Update schedule
+        schedule.append({
+            "goal": goal_name,
+            "startMonth": current_date.strftime("%B %Y"),
+            "completionDate": completion_date.strftime("%B %Y"),
+            "monthsToComplete": months_to_complete,
+            "yearsToComplete": round(months_to_complete / 12, 2)
+        })
+
+        # Move current date to after this goal's completion
+        current_date = completion_date
+
+    return schedule
+    
+    
+@csrf_exempt
+def save_to_dynamo(request):
+    if request.method == 'POST':
+        print("Inside save_to_dynamo")
+        # if not request.user.is_authenticated:
+        #     return JsonResponse({'error': 'User not authenticated'}, status=401)
+        
+        try:
+            # Parse request body
+            data = json.loads(request.body)
+            print(f"Data received: {data}")
+        except Exception as e:
+            print(f"Error parsing request body: {e}")
+            return JsonResponse({'error': f"Invalid JSON: {str(e)}"}, status=400)
+        
+        # Extract variables
+        input_data = data.get('inputData', {})
+        emis = data.get('emis', [])
+        checkingAccounts = data.get('checkingAccounts', [])
+        request_from = data.get('page', 'Unknown')
+        print(f"Request from: {request_from}")
+        print("input_data")
+        print(input_data)
+        
+        
+        
+        
+        # #Get the environment variable
+        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        # # Parse the JSON string
+        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+        # # Extract the value
+        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
         
         # Add username and created date to the data
         data['user_name'] = data['username']
@@ -151,9 +609,9 @@ def save_to_dynamo(request):
         request_from = data['page']
         
         # AWS credentials from environment variables
-        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
-        # region_name = os.getenv('AWS_REGION')
+        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
         # Initialize DynamoDB resource
@@ -178,9 +636,11 @@ def save_to_dynamo(request):
         # Define the main table based on the request source
         if request_from == "fin_reboot":
             table = dynamodb.Table('financial_reboot_common')
+            input_table = dynamodb.Table('financial_reboot_inputs')
             emis_table = dynamodb.Table('financial_reboot_emis')  # Separate table for emis entries
             checkingAccounts_table = dynamodb.Table('financial_reboot_acc')  # Separate table for checkingAccounts entries
-        
+
+
         # Check if the record exists
         response = table.get_item(
             Key={
@@ -253,50 +713,87 @@ def save_to_dynamo(request):
                     # Insert or update each EMI in the separate emis table
                     checkingAccounts_table.put_item(Item=checkingAccount_entry)    
                 
-            return JsonResponse({'message': 'Record updated successfully'})
+            existing_input_item = input_table.get_item(Key={'user_name': data['user_name']}).get('Item')
+            print("existing_input_item")
+            print(existing_input_item)   
+            
+            if existing_input_item:
+                # Update the existing item with new values from data
+                for key, value in input_data.items():
+                    if key not in ['user_name', 'created_date']:
+                        existing_input_item[key] = value
+                
+                # Construct the update expression
+                update_expression = []
+                expression_attribute_names = {}
+                expression_attribute_values = {}
+
+                for key, value in existing_input_item.items():
+                    if key not in ['user_name', 'created_date']:
+                        placeholder_name = f'#{key}'
+                        update_expression.append(f'{placeholder_name} = :{key}')
+                        expression_attribute_names[placeholder_name] = key
+                        expression_attribute_values[f':{key}'] = value
+
+                if update_expression:
+                    update_expression_str = 'set ' + ', '.join(update_expression)
+                    
+                    print("update_expression_str is "+update_expression_str)
+
+                    input_table.update_item(
+                        Key={'user_name': data['user_name']},
+                        UpdateExpression=update_expression_str,
+                        ExpressionAttributeNames=expression_attribute_names,
+                        ExpressionAttributeValues=expression_attribute_values
+                    )
+            
+            else:
+                # Insert logic (unchanged)
+                print("inside insert else")
+                print("input_data before inserting into DynamoDB:", input_data)
+                input_data['user_name'] = data.get('user_name')  # Ensure Partition Key is present
+                input_data['created_at'] = datetime.datetime.now().isoformat()
+                input_table.put_item(Item=input_data)
+                
+            #return JsonResponse({'message': 'Record updated successfully'})
         else:
             # Insert logic (unchanged)
             data['created_at'] = datetime.datetime.now().isoformat()
             table.put_item(Item=data)
-            return JsonResponse({'message': 'Record inserted successfully'})
+            #return JsonResponse({'message': 'Record inserted successfully'})
         
         
-        ### FOR FINANCIAL REBOOT SINCE IT DEALS WITH MULTIPLE TABLES ####
+               
         
-        print("before Save data to DynamoDB")
-        # # Save data to DynamoDB
-        # response = table.put_item(Item=data)
-        print("EMIS are")
-        print(emis)
-        ### Handle emis array ###
-        if 'emis' in data and isinstance(data['emis'], list):
-            print("emi_entry")
-            for emi in data['emis']:
-                print("emi_entry insert")
-                print(emi)
-                emi_entry = {
-                    'user_name': data['user_name'],
-                    'emi_id': str(emi.get('id')),  # Use a unique ID for each EMI item
-                    'value': emi.get('value', 0),  # Default value to 0 if not provided
-                    'created_date': data['created_date']
-                }
-                # Insert or update each EMI in the separate emis table
-                emis_table.put_item(Item=emi_entry)
+        # ### Handle emis array ###
+        # if 'emis' in data and isinstance(data['emis'], list):
+            # print("emi_entry")
+            # for emi in data['emis']:
+                # print("emi_entry insert")
+                # print(emi)
+                # emi_entry = {
+                    # 'user_name': data['user_name'],
+                    # 'emi_id': str(emi.get('id')),  # Use a unique ID for each EMI item
+                    # 'value': emi.get('value', 0),  # Default value to 0 if not provided
+                    # 'created_date': data['created_date']
+                # }
+                # # Insert or update each EMI in the separate emis table
+                # emis_table.put_item(Item=emi_entry)
         
-        ### Handle emis array ###
-        if 'checkingAccounts' in data and isinstance(data['checkingAccounts'], list):
-            print("checkingAccount_entry")
-            for checkingAccount in data['checkingAccounts']:
-                print("checkingAccount_entry insert")
-                print(checkingAccount_entr)
-                checkingAccount_entry = {
-                    'user_name': data['user_name'],
-                    'checkingAccount_id': str(checkingAccount.get('id')),  # Use a unique ID for each EMI item
-                    'value': checkingAccount.get('value', 0),  # Default value to 0 if not provided
-                    'created_date': data['created_date']
-                }
-                # Insert or update each EMI in the separate emis table
-                checkingAccounts_table.put_item(Item=checkingAccount_entry)    
+        # ### Handle emis array ###
+        # if 'checkingAccounts' in data and isinstance(data['checkingAccounts'], list):
+            # print("checkingAccount_entry")
+            # for checkingAccount in data['checkingAccounts']:
+                # print("checkingAccount_entry insert")
+                # print(checkingAccount_entry)
+                # checkingAccount_entry = {
+                    # 'user_name': data['user_name'],
+                    # 'checkingAccount_id': str(checkingAccount.get('id')),  # Use a unique ID for each EMI item
+                    # 'value': checkingAccount.get('value', 0),  # Default value to 0 if not provided
+                    # 'created_date': data['created_date']
+                # }
+                # # Insert or update each EMI in the separate emis table
+                # checkingAccounts_table.put_item(Item=checkingAccount_entry)    
         
         
         print("after Save data to DynamoDB")

@@ -25,5 +25,7 @@ urlpatterns = [
     path('api/fetch_data/', views.fetch_data, name='fetch_data'),
     #path('api/print-env/', views.print_env_vars, name='print_env_vars'),
     #path('api/oauth2callback/api/upload_to_google_drive', views.upload_to_google_drive, name='upload_to_google_drive'),
+    path("api/schedule-sequential/", views.schedule_sequential, name="schedule_sequential"),
+    path("api/schedule-parallel/", views.schedule_parallel, name="schedule_parallel"),
     
 ]
