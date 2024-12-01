@@ -164,7 +164,6 @@ def fetch_data_from_dynamodb(table_name, user_id):
 
 @csrf_exempt
 def schedule_sequential(request):
-    # Ensure the request is a POST request
     if request.method != "POST":
         return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
 
@@ -188,7 +187,7 @@ def schedule_sequential(request):
             return JsonResponse({"error": error}, status=500)
 
         # Extract required fields
-        M1 = float(dynamo_data.get("M1", 0))  # Default to 0 if key is missing
+        M1 = float(dynamo_data.get("M1", 0))  
         M2 = float(dynamo_data.get("M2", 0))
         M3 = float(dynamo_data.get("M3", 0))
         M4 = float(dynamo_data.get("M4", 0))
@@ -201,7 +200,7 @@ def schedule_sequential(request):
         if monthly_savings is None:
             return JsonResponse({"error": "monthlySavings is required"}, status=400)
 
-        # Call the scheduling logic (use your implementation here)
+        # Call the scheduling logic 
         schedule = sequential_scheduler(goals, monthly_savings)
         
         # Append monthly_savings to the response
@@ -215,31 +214,44 @@ def schedule_sequential(request):
         return JsonResponse({"error": "Invalid JSON input"}, status=400)
 
 
-def sequential_scheduler(goals, monthly_savings):
-    """
-    Adjusts the scheduling logic so that each goal's schedule starts after the previous goal is completed.
-    Takes into account the priority and time available to complete the goal.
-    """
-    # Sort goals based on priority
+def sequential_scheduler(goals, monthly_savings):    
+    
+  # Sort goals based on priority
     goals.sort(key=lambda goal: goal.get('priority', 1))  # Default priority 1 if not provided
     schedule = []
-    current_month = 0  # Tracks when the last goal was completed
+    current_month = 0  
 
     for goal in goals:
         # Retrieve goal details
         amount_required = goal.get('amountRequired', 0)
         amount_allocated = goal.get('amountAllocated', 0)
-        time_available = goal.get('timeAvailable', float('inf'))  # Default to infinity if not provided
+        time_available = goal.get('timeAvailable', float('inf')) * 12  # Convert timeAvailable to months
+
+        # Calculate remaining amount to achieve this goal
+        remaining_amount = max(0, amount_required - amount_allocated)
 
         # Calculate months required to achieve this goal
-        remaining_amount = max(0, amount_required - amount_allocated)
-        months_to_complete = (remaining_amount / monthly_savings) if monthly_savings > 0 else float('inf')
+        if monthly_savings > 0:
+            months_to_complete = (remaining_amount / monthly_savings)
+        else:
+            months_to_complete = float('inf')
+
         months_to_complete = max(0, int(months_to_complete))  # Ensure no negative months
 
-        # Adjust months_to_complete to the time available for the goal
-        # if months_to_complete > time_available:
-            # # If the time available is less than the months required, we'll have to delay the start of the goal
-            # months_to_complete = time_available
+        # Check if the goal can be completed within the available time
+        if months_to_complete > time_available:
+            schedule.append({
+                "process": "sequential",
+                "goal": goal['goal'],
+                "amount_required": amount_required,
+                "amount_allocated": amount_allocated,
+                "start_month": current_month + 1,
+                "completion_month": None,
+                "time_in_months": None,
+                "priority": goal.get('priority', 1),
+                "message": f"Goal cannot be completed within the time limit.",
+            })
+            continue  # Skip to the next goal
 
         # Schedule this goal
         start_month = current_month + 1  # Start after the previous goal's completion
@@ -263,14 +275,16 @@ def sequential_scheduler(goals, monthly_savings):
 
 
 @csrf_exempt
-def schedule_parallel(request):
-    # Ensure the request is a POST request
+def schedule_parallel(request):    
     if request.method != "POST":
         return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
 
     try:
         # Parse JSON data from the request body
         data = json.loads(request.body.decode('utf-8'))
+        
+        print("data is ")
+        print(data)
         
         user_id = data.get("userName")
         goals = data.get("goals", [])
@@ -286,7 +300,7 @@ def schedule_parallel(request):
             return JsonResponse({"error": error}, status=500)
 
         # Extract required fields
-        M1 = float(dynamo_data.get("M1", 0))  # Default to 0 if key is missing
+        M1 = float(dynamo_data.get("M1", 0))  
         M2 = float(dynamo_data.get("M2", 0))
         M3 = float(dynamo_data.get("M3", 0))
         M4 = float(dynamo_data.get("M4", 0))
@@ -314,65 +328,78 @@ def schedule_parallel(request):
 
 def parallel_scheduler(goals, monthly_savings):
     """
-    Prioritize and allocate monthly savings to goals based on priority.
+    Prioritize and allocate monthly savings to goals based on priority and time available.
     """
-    # Sort goals by priority
-    sorted_goals = sorted(goals, key=lambda x: x.get("priority", float("inf")))
-
-    # Calculate weights based on priority
-    total_weight = sum(1 / goal["priority"] for goal in sorted_goals if goal["priority"] > 0)
-
+    # Sort goals by priority (lower priority number = higher priority)
+    goals = sorted(goals, key=lambda x: x.get('priority', float('inf')))
+    
     schedule = []
-    for goal in sorted_goals:
-        print("Processing Goal:", goal)
+    current_month = 0
 
-        # Initialize goal details
-        amount_required = goal.get("amountRequired", 0)
-        amount_allocated = goal.get("amountAllocated", 0)
-        remaining_amount = max(0, amount_required - amount_allocated)
+    # Initialize the remaining goals with the time available in months
+    remaining_goals = [
+        {"Name": goal.get("goal"), "Amount": goal.get("amountRequired", 0), 
+         "Time": goal.get("timeAvailable", float('inf')) * 12, "Priority": goal.get("priority", 1), "Saved": goal.get("amountAllocated", 0)}
+        for goal in goals
+    ]
+    
+    print("Initial Goals:", remaining_goals)  # Debugging: Check initial values
 
-        print("Initial Remaining Amount:", remaining_amount)
-
-        weight = (1 / goal["priority"]) / total_weight
-        monthly_allocation = weight * monthly_savings
-        months_required = 0
-
-        # Loop until the goal is achieved
-        while remaining_amount > 0:
-            months_required += 1
-            remaining_amount -= monthly_allocation
-
-            # print(f"Month {months_required}: Remaining Amount = {remaining_amount:.2f}")
-
-            # If it overshoots, stop
-            if months_required > 1000:  # Safety net for infinite loops
-                months_required = "Not Achievable"
-                break
-        print("amount_required")
-        print(amount_required)
+    while remaining_goals:
+        active_goals = [goal for goal in remaining_goals if goal["Saved"] < goal["Amount"]]
+        if not active_goals:
+            break
         
-        print("amount_allocated")
-        print(amount_allocated)
+        # Calculate the total weight based on priority (higher priority gets more weight)
+        total_weight = sum(1 / goal["Priority"] for goal in active_goals if goal["Priority"] > 0)
         
-        print("months_required")
-        print(months_required)
-        
-        print("monthly_allocation")
-        print(monthly_allocation)
-        
-        # Append results for this goal
-        schedule.append({
-            "process": "parallel",
-            "Goal Name": goal.get("goal", "Unknown"),
-            "Amount Required": amount_required,
-            "Amount Allocated": amount_allocated,
-            "Time Required (Months)": months_required,
-            "Monthly Allocation": monthly_allocation,
-        })
-        
-        print("schedule")
-        print(schedule)
+        print("Active Goals:", active_goals)  # Debugging: Check active goals
 
+        # Allocate savings to active goals based on priority
+        for goal in active_goals:
+            weight = (1 / goal["Priority"]) / total_weight
+            monthly_allocation = weight * monthly_savings
+            goal["Saved"] += monthly_allocation
+            goal["Time"] -= 1  # Reduce the remaining time by 1 month
+
+            print(f"Allocating {monthly_allocation} to {goal['Name']}")  # Debugging: Check allocation
+
+            # Check if the goal is completed within the available time
+            if goal["Saved"] >= goal["Amount"]:
+                goal["Completion Month"] = current_month + 1
+                schedule.append({
+                    "process": "parallel",
+                    "Goal": goal["Name"],
+                    "Amount": goal["Amount"],
+                    "Priority": goal["Priority"],
+                    "Completion Month": goal["Completion Month"]
+                })
+        
+        # Remove completed goals or those whose time has expired
+        remaining_goals = [goal for goal in remaining_goals if goal["Time"] > 0 and goal["Saved"] < goal["Amount"]]
+        
+        print("Remaining Goals:", remaining_goals)  # Debugging: Check remaining goals
+
+        # Check for goals that cannot be completed within the available time
+        for goal in remaining_goals:
+            print("inside goal for loop")
+            print(goal)
+            print("goal time")
+            print(goal["Time"])
+            if goal["Saved"] < goal["Amount"] and goal["Time"] <= 1:
+                print("inside if condition")
+                schedule.append({
+                    "process": "parallel",
+                    "Goal": goal["Name"],
+                    "Message": f"Goal cannot be completed within the time limit."
+                })
+
+        # Increment the current month
+        current_month += 1
+
+    # Debugging: Final schedule
+    print("Final Schedule:", schedule)
+    
     return schedule
 
 
