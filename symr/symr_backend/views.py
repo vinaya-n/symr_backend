@@ -238,6 +238,12 @@ def sequential_scheduler(goals, monthly_savings):
 
         months_to_complete = max(0, int(months_to_complete))  # Ensure no negative months
 
+        
+
+        # Schedule this goal
+        start_month = current_month + 1  # Start after the previous goal's completion
+        completion_month = start_month + months_to_complete - 1
+        
         # Check if the goal can be completed within the available time
         if months_to_complete > time_available:
             schedule.append({
@@ -246,16 +252,12 @@ def sequential_scheduler(goals, monthly_savings):
                 "amount_required": amount_required,
                 "amount_allocated": amount_allocated,
                 "start_month": current_month + 1,
-                "completion_month": None,
-                "time_in_months": None,
+                "completion_month": completion_month,
+                "time_in_months": months_to_complete,
                 "priority": goal.get('priority', 1),
                 "message": f"Goal cannot be completed within the time limit.",
             })
             continue  # Skip to the next goal
-
-        # Schedule this goal
-        start_month = current_month + 1  # Start after the previous goal's completion
-        completion_month = start_month + months_to_complete - 1
 
         schedule.append({
             "process": "sequential",
@@ -342,29 +344,28 @@ def parallel_scheduler(goals, monthly_savings):
          "Time": goal.get("timeAvailable", float('inf')) * 12, "Priority": goal.get("priority", 1), "Saved": goal.get("amountAllocated", 0)}
         for goal in goals
     ]
-    
+
     print("Initial Goals:", remaining_goals)  # Debugging: Check initial values
 
     while remaining_goals:
+        # Filter active goals that still need savings
         active_goals = [goal for goal in remaining_goals if goal["Saved"] < goal["Amount"]]
         if not active_goals:
             break
         
-        # Calculate the total weight based on priority (higher priority gets more weight)
+        # Calculate total weight based on priority
         total_weight = sum(1 / goal["Priority"] for goal in active_goals if goal["Priority"] > 0)
-        
-        print("Active Goals:", active_goals)  # Debugging: Check active goals
 
         # Allocate savings to active goals based on priority
         for goal in active_goals:
             weight = (1 / goal["Priority"]) / total_weight
             monthly_allocation = weight * monthly_savings
             goal["Saved"] += monthly_allocation
-            goal["Time"] -= 1  # Reduce the remaining time by 1 month
+            goal["Time"] -= 1  # Reduce time left by 1 month
 
-            print(f"Allocating {monthly_allocation} to {goal['Name']}")  # Debugging: Check allocation
+            print(f"Allocating {monthly_allocation:.2f} to {goal['Name']}")  # Debugging allocation
 
-            # Check if the goal is completed within the available time
+            # Check if the goal is complete
             if goal["Saved"] >= goal["Amount"]:
                 goal["Completion Month"] = current_month + 1
                 schedule.append({
@@ -375,31 +376,29 @@ def parallel_scheduler(goals, monthly_savings):
                     "Completion Month": goal["Completion Month"]
                 })
         
-        # Remove completed goals or those whose time has expired
-        remaining_goals = [goal for goal in remaining_goals if goal["Time"] > 0 and goal["Saved"] < goal["Amount"]]
-        
-        print("Remaining Goals:", remaining_goals)  # Debugging: Check remaining goals
-
-        # Check for goals that cannot be completed within the available time
-        for goal in remaining_goals:
-            print("inside goal for loop")
-            print(goal)
-            print("goal time")
-            print(goal["Time"])
-            if goal["Saved"] < goal["Amount"] and goal["Time"] <= 1:
-                print("inside if condition")
+        # Handle goals that cannot be completed within the time limit
+        for goal in active_goals:
+            if goal["Time"] <= 0 and goal["Saved"] < goal["Amount"]:
+                print(f"Unachievable Goal: {goal['Name']}")  # Debugging
+                goal["Completion Month"] = current_month + 1
                 schedule.append({
                     "process": "parallel",
                     "Goal": goal["Name"],
-                    "Message": f"Goal cannot be completed within the time limit."
+                    "Amount": goal["Amount"],
+                    "Saved": goal["Saved"],
+                    "Completion Month": goal["Completion Month"],
+                    "Message": "Goal cannot be completed within the time limit."
                 })
+
+        # Remove completed and expired goals
+        remaining_goals = [goal for goal in active_goals if goal["Saved"] < goal["Amount"] and goal["Time"] > 0]
+        
+        print("Remaining Goals:", remaining_goals)  # Debugging remaining goals
 
         # Increment the current month
         current_month += 1
 
-    # Debugging: Final schedule
-    print("Final Schedule:", schedule)
-    
+    print("Final Schedule:", schedule)  # Debugging final schedule
     return schedule
 
 
@@ -589,6 +588,7 @@ def schedule_sequential123(goals, monthly_savings):
         current_date = completion_date
 
     return schedule
+
     
     
 @csrf_exempt
@@ -619,16 +619,16 @@ def save_to_dynamo(request):
         
         
         # #Get the environment variable
-        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # # Parse the JSON string
-        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # Parse the JSON string
+        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # # Extract the value
-        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+        # Extract the value
+        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
         
         # Add username and created date to the data
         data['user_name'] = data['username']
@@ -636,8 +636,8 @@ def save_to_dynamo(request):
         request_from = data['page']
         
         # AWS credentials from environment variables
-        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
         region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
@@ -677,6 +677,8 @@ def save_to_dynamo(request):
         existing_item = table.get_item(Key={'user_name': data['user_name']}).get('Item')
 
         if existing_item:
+            print("inside existing item")
+            print(data)
             # Update the existing item with new values from data
             for key, value in data.items():
                 if key not in ['user_name', 'created_date']:
@@ -705,40 +707,9 @@ def save_to_dynamo(request):
                     ExpressionAttributeNames=expression_attribute_names,
                     ExpressionAttributeValues=expression_attribute_values
                 )
-                print("EMIS are")
-                print(emis)
+
             
-            ### Handle emis array ###
-            if 'emis' in data and isinstance(data['emis'], list):
-                for emi in data['emis']:
-                    print("emi entry update")
-                    print(emi)
-                    emi_entry = {
-                        'user_name': data['user_name'],
-                        'emi_id': str(emi.get('id')),  # Use a unique ID for each EMI item
-                        'value': emi.get('value', 0),  # Default value to 0 if not provided
-                        'created_date': data['created_date']
-                    }
-                    print("emi_entry")
-                    print(emi_entry)
-                    # Insert or update each EMI in the separate emis table
-                    emis_table.put_item(Item=emi_entry)
-            
-            ### Handle checkingAccounts array ###
-            if 'checkingAccounts' in data and isinstance(data['checkingAccounts'], list):
-                for checkingAccount in data['checkingAccounts']:
-                    print("checkingAccounts entry update")
-                    print(checkingAccounts)
-                    checkingAccount_entry = {
-                        'user_name': data['user_name'],
-                        'checkingAccounts_id': str(checkingAccount.get('id')),  # Use a unique ID for each EMI item
-                        'value': checkingAccount.get('value', 0),  # Default value to 0 if not provided
-                        'created_date': data['created_date']
-                    }
-                    print("checkingAccount_entry")
-                    print(checkingAccount_entry)
-                    # Insert or update each EMI in the separate emis table
-                    checkingAccounts_table.put_item(Item=checkingAccount_entry)    
+         
                 
             existing_input_item = input_table.get_item(Key={'user_name': data['user_name']}).get('Item')
             print("existing_input_item")
@@ -2349,7 +2320,7 @@ def commonResults(request):
 
 
 def get_next_months(n):
-    today = datetime.now()
+    today = datetime.datetime.now()
     
     months = []
     total_months = []
@@ -2399,36 +2370,36 @@ def payOffDebtRecos(request):
         T4 = 0 if T4 is None or T4 == '' else T4
 
         EFT = form1Data.get('EFT', 0)  #Emergency Fund Threshold
-        EFT = 0 if EFT is None or EFT == '' else float(EFT)
+        EFT = 3 if EFT is None or EFT == '' else float(EFT)
         print("EFT "+ format(EFT))
 
         DTI = form1Data.get('DTI', '')  #Debt To Income Threshold
-        DTI = 0 if DTI is None or DTI == '' else float(DTI)
+        DTI = 40 if DTI is None or DTI == '' else float(DTI)
         print("DTI "+ format(DTI))
 
         DTA = form1Data.get('DTA', '')  #Debt To Assets Threshold
-        DTA = 0 if DTA is None or DTA == '' else float(DTA)
+        DTA = 30 if DTA is None or DTA == '' else float(DTA)
 
         DCA = form1Data.get('DCA', '')  #Debt Coverage by Assets
-        DCA = 0 if DCA is None or DCA == '' else float(DCA)
+        DCA = 6 if DCA is None or DCA == '' else float(DCA)
 
         HCI = form1Data.get('HCI', '')  #Housing Cost to Income Threshold
-        HCI = 0 if HCI is None or HCI == '' else float(HCI)
+        HCI = 30 if HCI is None or HCI == '' else float(HCI)
 
         HOCR = form1Data.get('HOCR', '')  #Home Ownership Cost Over Current Rent
-        HOCR = 0 if HOCR is None or HOCR == '' else float(HOCR)
+        HOCR = 20 if HOCR is None or HOCR == '' else float(HOCR)
 
         SR = form1Data.get('SR', '')  #Savings Ratio
-        SR = 0 if SR is None or SR == '' else float(SR)
+        SR = 10 if SR is None or SR == '' else float(SR)
 
         DP = form1Data.get('DP', '')  #Down Payment Ratio of Home Price  
-        DP = 0 if DP is None or DP == '' else float(DP)
+        DP = 20 if DP is None or DP == '' else float(DP)
 
         HOCC = form1Data.get('HOCC', '')  #Home Ownership Cost Coverage Fund
-        HOCC = 0 if HOCC is None or HOCC == '' else float(HOCC)
+        HOCC = 6 if HOCC is None or HOCC == '' else float(HOCC)
 
         HIRT = form1Data.get('HIRT', '')  #High Interest Rate Threshold
-        HIRT = 0 if HIRT is None or HIRT == '' else float(HIRT)
+        HIRT = 5 if HIRT is None or HIRT == '' else float(HIRT)
 
         values = data.get('debtData')
         
