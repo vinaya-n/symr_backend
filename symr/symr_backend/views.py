@@ -175,6 +175,8 @@ def schedule_sequential(request):
         print("Inside schedule_sequential ")
         
         goals = data.get("goals", [])
+        print("goals ")
+        print(goals)
         
         if not user_id:
             return JsonResponse({"error": "user_id is required"}, status=400)
@@ -221,22 +223,48 @@ def sequential_scheduler(goals, monthly_savings):
     schedule = []
     current_month = 0  
 
-    for goal in goals:
-        # Retrieve goal details
-        amount_required = goal.get('amountRequired', 0)
-        amount_allocated = goal.get('amountAllocated', 0)
-        time_available = goal.get('timeAvailable', float('inf')) * 12  # Convert timeAvailable to months
+    for goal in goals:        
+        if goal['goal'] == "Become Debt Free":
+            request_data = {
+                'data': goal.get('data', {}),
+                'data1': goal.get('data1', {}),
+                'debtData': goal.get('debtData', {}),
+                'method': goal.get('method', '')
+            }
+            
+            # Call `payOffDebtRecos` with the required data
+            debt_recommendations = payOffDebtRecos_internal(request_data)
+            
+            print("debt_recommendations")
+            print(debt_recommendations)
+            
+            # Handle the returned recommendations
+            payable_loans = debt_recommendations.get('payable_loans', [])
+            final_months = debt_recommendations.get('final_months', 0)
+            print("payable_loans")
+            print(payable_loans)
+            print("final_months")
+            print(final_months)
+            
+            months_to_complete = final_months
+            time_available = 0
+        else:                    
+            # Retrieve goal details
+            amount_required = goal.get('amountRequired', 0)
+            amount_allocated = goal.get('amountAllocated', 0)
+            time_available = goal.get('timeAvailable', float('inf')) * 12  # Convert timeAvailable to months
 
-        # Calculate remaining amount to achieve this goal
-        remaining_amount = max(0, amount_required - amount_allocated)
+            # Calculate remaining amount to achieve this goal
+            remaining_amount = max(0, amount_required - amount_allocated)
 
-        # Calculate months required to achieve this goal
-        if monthly_savings > 0:
-            months_to_complete = (remaining_amount / monthly_savings)
-        else:
-            months_to_complete = float('inf')
+            # Calculate months required to achieve this goal
+            if monthly_savings > 0:
+                months_to_complete = (remaining_amount / monthly_savings)
+            else:
+                months_to_complete = float('inf')
 
-        months_to_complete = max(0, int(months_to_complete))  # Ensure no negative months
+            months_to_complete = max(0, int(months_to_complete))  # Ensure no negative months
+            
 
         
 
@@ -246,17 +274,41 @@ def sequential_scheduler(goals, monthly_savings):
         
         # Check if the goal can be completed within the available time
         if months_to_complete > time_available:
-            schedule.append({
+            if goal['goal'] == "Become Debt Free":
+                schedule.append({
                 "process": "sequential",
                 "goal": goal['goal'],
-                "amount_required": amount_required,
-                "amount_allocated": amount_allocated,
+                "recommendations":payable_loans,
                 "start_month": current_month + 1,
+                "monthly_savings": monthly_savings,
                 "completion_month": completion_month,
                 "time_in_months": months_to_complete,
                 "priority": goal.get('priority', 1),
-                "message": f"Goal cannot be completed within the time limit.",
-            })
+                })
+            elif goal['goal'] == "Boost Emergency Fund":  
+                schedule.append({
+                    "process": "sequential",
+                    "goal": goal['goal'],
+                    "amount_required": amount_required,
+                    "amount_allocated": amount_allocated,
+                    "start_month": current_month + 1,
+                    "completion_month": completion_month,
+                    "time_in_months": months_to_complete,
+                    "priority": goal.get('priority', 1)
+                })    
+            else:    
+                schedule.append({
+                    "process": "sequential",
+                    "goal": goal['goal'],
+                    "amount_required": amount_required,
+                    "amount_allocated": amount_allocated,
+                    "start_month": current_month + 1,
+                    "monthly_savings": monthly_savings,
+                    "completion_month": completion_month,
+                    "time_in_months": months_to_complete,
+                    "priority": goal.get('priority', 1),
+                    "message": f"Goal cannot be completed within the time limit.",
+                })
             continue  # Skip to the next goal
 
         schedule.append({
@@ -265,6 +317,7 @@ def sequential_scheduler(goals, monthly_savings):
             "amount_required": amount_required,
             "amount_allocated": amount_allocated,
             "start_month": start_month,
+            "monthly_savings": monthly_savings,
             "completion_month": completion_month,
             "time_in_months": months_to_complete,
             "priority": goal.get('priority', 1),  # Include the priority in the schedule
@@ -333,73 +386,481 @@ def parallel_scheduler(goals, monthly_savings):
     Prioritize and allocate monthly savings to goals based on priority and time available.
     """
     # Sort goals by priority (lower priority number = higher priority)
-    goals = sorted(goals, key=lambda x: x.get('priority', float('inf')))
-    
+    goals = sorted(goals, key=lambda x: x.get("priority", float("inf")))
+
     schedule = []
     current_month = 0
 
-    # Initialize the remaining goals with the time available in months
+    # Initialize the remaining goals
     remaining_goals = [
-        {"Name": goal.get("goal"), "Amount": goal.get("amountRequired", 0), 
-         "Time": goal.get("timeAvailable", float('inf')) * 12, "Priority": goal.get("priority", 1), "Saved": goal.get("amountAllocated", 0)}
+        {
+            "Name": goal.get("goal"),
+            "Amount": goal.get("amountRequired", 0),
+            "Time": goal.get("timeAvailable", float("inf")) * 12 if goal.get("goal") not in ["Boost Emergency Fund", "Become Debt Free"] else float("inf"),
+            "Priority": goal.get("priority", 1),
+            "Saved": goal.get("amountAllocated", 0),
+            "Data": goal.get("data", {}),
+            "Data1": goal.get("data1", {}),
+            "DebtData": goal.get("debtData", {}),
+            "Method": goal.get("method", ""),
+            "Completed": False  # Add a flag to track completion
+        }
         for goal in goals
     ]
 
     print("Initial Goals:", remaining_goals)  # Debugging: Check initial values
 
     while remaining_goals:
-        # Filter active goals that still need savings
-        active_goals = [goal for goal in remaining_goals if goal["Saved"] < goal["Amount"]]
+        # Filter active goals
+        active_goals = [
+            goal for goal in remaining_goals
+            if not goal["Completed"] and (
+                (goal["Name"] == "Become Debt Free") or 
+                (goal["Saved"] < goal["Amount"] and goal["Time"] > 0)
+            )
+        ]
         if not active_goals:
             break
-        
+
         # Calculate total weight based on priority
         total_weight = sum(1 / goal["Priority"] for goal in active_goals if goal["Priority"] > 0)
 
-        # Allocate savings to active goals based on priority
+        # Precompute allocation for all active goals
+        allocations = {
+            goal["Name"]: ((1 / goal["Priority"]) / total_weight) * monthly_savings
+            for goal in active_goals
+        }
+
+        # Allocate savings to active goals based on precomputed allocation
         for goal in active_goals:
-            weight = (1 / goal["Priority"]) / total_weight
-            monthly_allocation = weight * monthly_savings
+            monthly_allocation = allocations[goal["Name"]]
             goal["Saved"] += monthly_allocation
-            goal["Time"] -= 1  # Reduce time left by 1 month
+
+            # Special case: Don't decrement time for goals with no time constraint
+            if goal["Time"] != float("inf"):
+                goal["Time"] -= 1
 
             print(f"Allocating {monthly_allocation:.2f} to {goal['Name']}")  # Debugging allocation
 
-            # Check if the goal is complete
-            if goal["Saved"] >= goal["Amount"]:
-                goal["Completion Month"] = current_month + 1
-                schedule.append({
-                    "process": "parallel",
-                    "Goal": goal["Name"],
-                    "Amount": goal["Amount"],
-                    "Priority": goal["Priority"],
-                    "Completion Month": goal["Completion Month"]
-                })
-        
-        # Handle goals that cannot be completed within the time limit
-        for goal in active_goals:
-            if goal["Time"] <= 0 and goal["Saved"] < goal["Amount"]:
-                print(f"Unachievable Goal: {goal['Name']}")  # Debugging
-                goal["Completion Month"] = current_month + 1
-                schedule.append({
-                    "process": "parallel",
-                    "Goal": goal["Name"],
-                    "Amount": goal["Amount"],
-                    "Saved": goal["Saved"],
-                    "Completion Month": goal["Completion Month"],
-                    "Message": "Goal cannot be completed within the time limit."
-                })
+            # Handle "Boost Emergency Fund"
+            if goal["Name"] == "Boost Emergency Fund":
+                if goal["Saved"] >= goal["Amount"]:
+                    goal["Completed"] = True
+                    goal["Completion Month"] = current_month + 1
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Amount": goal["Amount"],
+                        "Slack": monthly_allocation,
+                        "Priority": goal["Priority"],
+                        "Completion Month": goal["Completion Month"],
+                    })
 
-        # Remove completed and expired goals
-        remaining_goals = [goal for goal in active_goals if goal["Saved"] < goal["Amount"] and goal["Time"] > 0]
-        
+            # Handle "Become Debt Free"
+            elif goal["Name"] == "Become Debt Free":
+                # Always treat it as active until its specific logic determines it's done
+                request_data = {
+                    "data": goal["Data"],
+                    "data1": goal["Data1"],
+                    "debtData": goal["DebtData"],
+                    "method": goal["Method"],
+                }
+
+                # Get debt recommendations
+                debt_recommendations = payOffDebtRecos_internal(request_data)
+                payable_loans = debt_recommendations.get("payable_loans", [])
+                final_months = debt_recommendations.get("final_months", 0)
+
+                # Mark as complete if the debt recommendations indicate it's finished
+                if goal["Saved"] >= goal["Amount"]:
+                    goal["Completed"] = True
+                    goal["Completion Month"] = current_month + max(1, final_months)
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Recos": payable_loans,
+                        "Slack": monthly_allocation,
+                        "Amount": goal["Amount"],
+                        "Priority": goal["Priority"],
+                        "Completion Month": goal["Completion Month"],
+                    })
+
+            # Handle other goals
+            else:
+                if goal["Saved"] >= goal["Amount"]:
+                    goal["Completed"] = True
+                    goal["Completion Month"] = current_month + 1
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Amount": goal["Amount"],
+                        "Slack": monthly_allocation,
+                        "Priority": goal["Priority"],
+                        "Completion Month": goal["Completion Month"],
+                    })
+
+                # Handle unachievable goals due to time constraints
+                elif goal["Time"] <= 0 and goal["Saved"] < goal["Amount"]:
+                    print(f"Unachievable Goal: {goal['Name']}")  # Debugging
+                    goal["Completed"] = True
+                    goal["Completion Month"] = current_month + 1
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Amount": goal["Amount"],
+                        "Slack": monthly_allocation,
+                        "Saved": goal["Saved"],
+                        "Priority": goal["Priority"],
+                        "Completion Month": goal["Completion Month"],
+                        "Message": "Goal cannot be completed within the time limit."
+                    })
+
+        # Remove completed goals
+        remaining_goals = [goal for goal in remaining_goals if not goal["Completed"]]
+
         print("Remaining Goals:", remaining_goals)  # Debugging remaining goals
 
         # Increment the current month
         current_month += 1
 
+    # Sort the schedule based on priority
+    schedule = sorted(schedule, key=lambda x: x.get("Priority", float("inf")))
+
     print("Final Schedule:", schedule)  # Debugging final schedule
     return schedule
+      
+def payOffDebtRecos_internal(data):    
+    print("Inside payOffDebtRecos_internal")
+    formData = data.get('data', {})
+    form1Data = data.get('data1', {})
+    debtData = data.get('debtData', {})
+    methodType = data.get('method')
+    
+    if methodType == "Snowball":
+        method = "SB"
+    elif methodType == "Avalanche":
+        method = "AV"
+
+    M1 = formData.get('M1', 0)
+    M1 = 0 if M1 is None or M1 == '' else float(M1)        
+    print(M1)
+    
+    M2 = formData.get('M2', 0)#Monthly Expenses
+    M2 = 0 if M2 is None or M2 == '' else float(M2)
+   
+    M3 = formData.get('M3', 0)  #Monthly Debt
+    M3 = 0 if M3 is None or M3 == ''else float(M3)
+
+    M4 = formData.get('M4', 0)  #Housing
+    M4 = 0 if M4 is None or M4 == ''else float(M4)
+
+    T1 = formData.get('T1', 0)  #
+    T1 = 0 if T1 is None or T1 == ''else float(T1)
+
+    T2 = formData.get('T2', 0)  #Investments
+    T2 = 0 if T2 is None or T2 == ''else float(T2)
+
+    T3 = formData.get('T3', 0)  #Total Debt
+    T3 = 1 if T3 is None or T3 == '' else float(T3)
+
+    T4 = formData.get('T4', 0)  #Max APR for Debt
+    T4 = 0 if T4 is None or T4 == '' else T4
+
+    EFT = form1Data.get('EFT', 0)  #Emergency Fund Threshold
+    EFT = 3 if EFT is None or EFT == '' else float(EFT)
+    print("EFT "+ format(EFT))
+
+    DTI = form1Data.get('DTI', '')  #Debt To Income Threshold
+    DTI = 40 if DTI is None or DTI == '' else float(DTI)
+    print("DTI "+ format(DTI))
+
+    DTA = form1Data.get('DTA', '')  #Debt To Assets Threshold
+    DTA = 30 if DTA is None or DTA == '' else float(DTA)
+
+    DCA = form1Data.get('DCA', '')  #Debt Coverage by Assets
+    DCA = 6 if DCA is None or DCA == '' else float(DCA)
+
+    HCI = form1Data.get('HCI', '')  #Housing Cost to Income Threshold
+    HCI = 30 if HCI is None or HCI == '' else float(HCI)
+
+    HOCR = form1Data.get('HOCR', '')  #Home Ownership Cost Over Current Rent
+    HOCR = 20 if HOCR is None or HOCR == '' else float(HOCR)
+
+    SR = form1Data.get('SR', '')  #Savings Ratio
+    SR = 10 if SR is None or SR == '' else float(SR)
+
+    DP = form1Data.get('DP', '')  #Down Payment Ratio of Home Price  
+    DP = 20 if DP is None or DP == '' else float(DP)
+
+    HOCC = form1Data.get('HOCC', '')  #Home Ownership Cost Coverage Fund
+    HOCC = 6 if HOCC is None or HOCC == '' else float(HOCC)
+
+    HIRT = form1Data.get('HIRT', '')  #High Interest Rate Threshold
+    HIRT = 5 if HIRT is None or HIRT == '' else float(HIRT)
+
+    values = data.get('debtData')
+    
+    # method = data.get('method', 'SB')  #Loan Repayment method 
+
+    print("method "+method)
+
+
+    savings = T1 - (EFT * (M2 + M3 + M4))  
+    slack = M1-(M2+M3+M4)    
+
+    line_chart_values = []
+    payable_loans = []
+
+    ex_saving = savings
+    flag = 0
+    month = 0
+    LineVals = []
+    loans = []
+    flag2 = 0
+    stat = ''
+    fund_months = 0
+    final_months = 0
+    loans.append(stat)
+
+    print("values")
+    print(values)
+
+    if (method == "SB"):   
+        print("Snowball method")         
+        
+        # Filter and sort loan data (values is the array of object that contains the loan data)
+        values = sorted([value for value in values if float(value['amount']) > 0], key=lambda x: float(x['amount']))
+        
+        if ex_saving > 0:
+            stat = f"You have {ex_saving} in extra savings after setting aside an emergency fund of {EFT} months' expenses, debt payments and rent.\n\n"
+            loans.append(stat)
+            stat = ''
+        for value in values:
+            print("Inside values")
+            if savings > float(value['amount']):
+                savings -= float(value['amount'])                    
+                stat = f"{value['name']} of {value['amount']} can be paid off immediately using extra savings.\n "
+                loans.append(stat)
+                stat = ''
+            
+            elif savings == float(value['amount']):
+                stat = f"{value['name']} of {value['amount']} can be paid off immediately using extra savings.\n "
+                value['amount'] -= savings
+                savings = -1
+                loans.append(stat)
+                stat = ''
+                flag = 1
+                flag2 = -1
+            
+            elif savings > 0:
+                value['amount'] = float(value['amount'])-savings
+                stat = ''
+                stat = f"A part of {value['name']} of {savings} can be paid off using extra savings."
+                loans.append(stat)
+            
+                if slack > 0 and float(value['amount']) - slack <= 0:
+                    stat = ''
+                    stat += f" Remaining {value['name']} of {value['amount']} can be paid off immediately using slack this month. "
+                    loans.append(stat)
+            
+                elif slack <= 0:
+                    stat = ''
+                    stat += "\nYou do not have any extra savings beyond emergency fund or slack in your budget to pay off debt. Please increase your income or decrease your expenses to create positive slack in your budget."
+                    
+                    loans.append(stat)
+
+                flag = 1
+                flag2 = 1    
+                savings = -1 
+                stat = ''
+            elif ex_saving <= 0:                
+            
+                if slack > 0:
+                    fund_months = ((EFT * (M2+M3+M4)) - T1) / slack
+                    if flag2 == 0:
+                        mon1 = int(float(value['amount']) / slack)
+                        if mon1 == 0:
+                            stat = f"\n{value['name']} of {value['amount']} can be paid off with slack immediately. "
+                        else:
+                            stat = f"\n{value['name']} of {value['amount']} can be paid off with slack in {mon1} months. "
+                    
+                    else:
+                        mon = int((float(value['amount']) - slack) / slack)
+                        if (mon > 0):
+                            stat = f" Remaining {value['name']} of {value['amount']} can be paid off with slack in {mon} months. "
+                        flag2 = 0
+                    
+                    loans.append(stat)
+                    
+                    if float(value['amount']) > 0:
+                        line_chart_values.append({'name': value['name'], 'amount': float(value['amount'])})
+                        month += float(value['amount']) / slack
+                    
+                elif slack <= 0:
+                    stat = "\n\nYou do not have any extra savings beyond emergency fund or slack in your budget to pay off debt. Please increase your income or decrease your expenses to create positive slack in your budget."
+                    loans.append(stat)    
+                
+                savings = -1     
+            if savings == -1 and flag == 1:
+                stat = ''
+                if flag2 == 0:
+                    if slack > 0:
+                        mon2 = int(float(value['amount']) / slack)
+                        if mon2 == 0:
+                            stat += f"\n{value['name']} of {value['amount']} can be paid off with slack immediately. "
+                        else:
+                            stat += f"\n{value['name']} of {value['amount']} can be paid off with slack in {mon2} months. "                        
+                    flag2 = 0
+                else:
+                    if slack > 0:
+                        mon = int((float(value['amount']) - slack) / slack)
+                        if mon > 0:
+                            stat = f" Remaining {value['name']} of {value['amount']} can be paid off with slack in {mon} months. "
+                    
+                    flag2 = 0
+                
+                loans.append(stat)
+                
+                line_chart_values.append({'name': value['name'], 'amount': float(value['amount'])})
+                if slack > 0:
+                    month += float(value['amount']) / slack    
+        
+        if int(month) > 0:
+            stat = ""
+            if int(fund_months) > 0:
+                final_months = int(month) + int(fund_months)
+            
+            else:
+                final_months = int(month)
+            
+            stat += f"\n\nYou will be debt free in {final_months} months."
+            loans.append(stat)
+
+        
+    elif (method == "AV"):
+
+        print("Avalanche method")            
+        # Filter and sort loan data (values is the array of object that contains the loan data)
+        values = sorted([value for value in values if int(value['amount']) > 0], key=lambda x: float(x['apr']), reverse=True)
+        
+        if ex_saving > 0:
+            stat = f"You have {ex_saving} in extra savings after setting aside an emergency fund of {EFT} months' expenses, debt payments and rent.\n\n"
+            loans.append(stat)
+        
+        for value in values:
+            if savings > float(value['amount']):
+                savings -= float(value['amount'])
+                stat = f"{value['name']} of {value['amount']} can be paid off immediately using extra savings. "
+                loans.append(stat)
+            
+            elif savings == float(value['amount']):
+                stat = f"{value['name']} of {value['amount']} can be paid off immediately using extra savings."
+                value['amount'] -= savings
+                savings = -1
+                loans.append(stat)
+                flag = 1
+            
+            elif savings > 0:
+                value['amount'] = float(value['amount']) - savings
+                stat = f"A part of {value['name']} of {savings} can be paid off using extra savings."
+                loans.append(stat)
+            
+                if slack > 0 and float(value['amount']) - slack <= 0:
+                    stat += f" Remaining {value['name']} of {value['amount']} can be paid off immediately using slack this month. "
+                    loans.append(stat)
+            
+                elif slack <= 0:
+                    stat += "\nYou do not have any extra savings beyond emergency fund or slack in your budget to pay off debt. Please increase your income or decrease your expenses to create positive slack in your budget."
+                    loans.append(stat)
+            
+                flag2 = 1
+                savings = -1
+                loans.append(stat)
+                flag = 1
+            
+            elif ex_saving <= 0:
+                if slack > 0:
+                    fund_months = ((EFT * (M2 + M3 + M4)) - T1) / slack
+                    if flag2 == 0:
+                        mon1 = int(float(value['amount']) / slack)
+                        
+                        if mon1 == 0:
+                            stat = f"\n{value['name']} of {value['amount']} can be paid off with slack immediately."
+                        else:
+                            stat = f"\n{value['name']} of {value['amount']} can be paid off with slack in {int(float(value['amount']) / slack)} months."
+                    
+                    else:
+                        mon = int((float(value['amount']) - slack) / slack)
+                        
+                        if mon > 0:
+                            stat = f"Remaining {value['name']} of {value['amount']} can be paid off with slack in {mon} months."
+                        
+                        flag2 = 0
+                    
+                    loans.append(stat)
+                    
+                    if float(value['amount']) > 0:
+                        line_chart_values.append({'name': value['name'], 'amount': float(value['amount']), 'apr': int(value['apr'])})
+                        month += float(value['amount']) / slack
+
+                elif slack <= 0:
+                    stat = "\n\nYou do not have any extra savings beyond emergency fund or slack in your budget to pay off debt. Please increase your income or decrease your expenses to create positive slack in your budget."
+                    loans.append(stat)
+                
+            if flag == 1:
+                stat = ""
+                
+                if flag2 == 0:
+                    if slack > 0:
+                        mon2 = int(float(value['amount']) / slack)
+                        
+                        if mon2 == 0:
+                            stat += f"\n{value['name']} of {value['amount']} can be paid off with slack immediately."
+                        else:
+                            stat += f"\n{value['name']} of {value['amount']} can be paid off with slack in {int(float(value['amount']) / slack)} months."
+                
+                else:
+                    if slack > 0:
+                        mon = int((float(value['amount']) - slack) / slack)
+                        
+                        if mon > 0:
+                            stat += f"Remaining {value['name']} of {float(value['amount']) - slack} can be paid off with slack in {mon} months."
+                    
+                    elif slack <= 0:
+                        stat += "\nYou do not have any extra savings beyond emergency fund or slack in your budget to pay off debt. Please increase your income or decrease your expenses to create positive slack in your budget."
+                    
+                    flag2 = 0
+
+                loans.append(stat)
+                
+                if float(value['amount']) > 0:
+                    line_chart_values.append({'name': value['name'], 'amount': float(value['amount']), 'apr': int(value['amount'])})
+                    
+                    if slack > 0:
+                        month += float(value['amount']) / slack   
+        
+        if int(month) > 0:
+            stat = ""
+            
+            if int(fund_months) > 0:
+                final_months = int(month) + int(fund_months)
+            else:
+                final_months = int(month)
+            
+            stat += f"\n\nYou will be debt free in {final_months} months. "
+            loans.append(stat)
+        
+        months = int(month)
+        get_next_months(int(month))
+        
+    print("loans")    
+    print(loans)    
+
+    return {
+        'payable_loans': loans,
+        'final_months': final_months
+    }
+
 
 
 
