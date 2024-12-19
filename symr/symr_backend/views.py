@@ -409,15 +409,333 @@ def schedule_parallel(request):
         M2 = float(dynamo_data.get("M2", 0))
         M3 = float(dynamo_data.get("M3", 0))
         M4 = float(dynamo_data.get("M4", 0))
+        
+        T1 = float(dynamo_data.get("T1", 0))
 
         # Calculate monthly savings
         monthly_savings = M1 - (M2 + M3 + M4)
+        
+        #Calculate extra savings
+        ex_savings = T1 - 3 * (M2 + M3 + M4) if T1 - 3 * (M2 + M3 + M4) > 0 else 0
+        
+        print("inside ex_savings schedule_parallel")
+        print(ex_savings)
 
         if monthly_savings <= 0:
             return JsonResponse({"error": "Monthly savings must be greater than zero"}, status=400)
 
         # Call the prioritization and scheduling logic
-        schedule = parallel_scheduler(goals, monthly_savings)
+        schedule = parallel_scheduler(goals, monthly_savings, ex_savings)
+        
+        # print("schedule 1")
+        # print(schedule)
+        response = {
+            "monthlySavings": monthly_savings,
+            "schedule": schedule
+        }
+
+        return JsonResponse(response, safe=False)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON input"}, status=400)
+
+
+def parallel_scheduler(goals, monthly_savings, ex_savings):
+    """
+    Prioritize and allocate monthly savings and extra savings to goals based on priority and time available.
+    """
+    # Sort goals by priority (lower priority number = higher priority)
+    goals = sorted(goals, key=lambda x: x.get("priority", float("inf")))
+
+    schedule = []
+    current_month = 0
+
+    # Initialize remaining goals
+    remaining_goals = [
+        {
+            "Name": goal.get("goal"),
+            "Amount": goal.get("amountRequired", 0),
+            "Time": goal.get("timeAvailable", float("inf")) * 12 if goal.get("goal") not in ["Boost Emergency Fund", "Become Debt Free"] else float("inf"),
+            "Priority": goal.get("priority", 1),
+            "Saved": goal.get("amountAllocated", 0),
+            "Data": goal.get("data", {}),
+            "Data1": goal.get("data1", {}),
+            "DebtData": goal.get("debtData", {}),
+            "Method": goal.get("method", ""),
+            "Completed": False,
+            "AllocationHistory": [],
+            "CompletionMonths": None,
+        }
+        for goal in goals
+    ]
+
+    # Main scheduling loop
+    while remaining_goals:
+        # Identify active goals
+        active_goals = [
+            goal for goal in remaining_goals
+            if not goal["Completed"] and (
+                (goal["Name"] == "Become Debt Free") or 
+                (goal["Saved"] < goal["Amount"] and goal["Time"] > 0)
+            )
+        ]
+        if not active_goals:
+            break
+
+        # Recompute total weight and allocations for monthly savings
+        total_weight = sum(1 / goal["Priority"] for goal in active_goals if goal["Priority"] > 0)
+        monthly_allocations = {
+            goal["Name"]: ((1 / goal["Priority"]) / total_weight) * monthly_savings
+            for goal in active_goals
+        }
+
+        # Recompute extra savings allocation if any extra savings remain
+        if ex_savings > 0 and total_weight > 0:
+            extra_allocations = {
+                goal["Name"]: ((1 / goal["Priority"]) / total_weight) * ex_savings
+                for goal in active_goals
+            }
+        else:
+            extra_allocations = {goal["Name"]: 0 for goal in active_goals}
+
+        # Reduce `ex_savings` by the allocated amounts
+        total_allocations = {}           
+
+        # Allocate to each goal
+        for goal in active_goals:
+            monthly_allocation = monthly_allocations[goal["Name"]]
+            extra_allocation = extra_allocations[goal["Name"]]
+            total_allocations[goal["Name"]] = monthly_allocation + extra_allocation            
+            remaining_amount = max(0, goal["Amount"] - goal["Saved"])
+            total_allocation = total_allocations[goal["Name"]]
+
+            # Track allocation history and progress
+            goal["Saved"] += total_allocation
+            # Add correct start and end dates to allocation history
+            goal["AllocationHistory"].append({
+                "Name" : goal["Name"],
+                "Amount": total_allocation,
+                "MonthlySavings": monthly_allocations.get(goal["Name"], 0),
+                "ExtraSavings": extra_allocations.get(goal["Name"], 0),
+                "Duration": 1,  # Increment by 1 month
+                "StartDate": current_month,  # Track the current month
+            })
+            # goal["AllocationHistory"].append({"Amount": total_allocation, "MonthlySlack": monthly_allocation, "ExtraSavings": extra_allocation, "Duration": 1})
+            
+            ex_savings -= extra_allocation  # Reduce extra savings as allocated
+            if ex_savings < 0:
+                ex_savings = 0  # Ensure no negative extra savings
+            
+            # Calculate months to complete with the current allocation
+            if total_allocation > 0:
+                months_to_complete = remaining_amount / total_allocation
+            else:
+                months_to_complete = float("inf")
+
+            # Handle specific goals
+            if goal["Name"] == "Become Debt Free":
+                request_data = {
+                    "data": goal["Data"],
+                    "data1": goal["Data1"],
+                    "debtData": goal["DebtData"],
+                    "method": goal["Method"],
+                }
+                debt_recommendations = payOffDebtRecos_internal_par(
+                    request_data, 
+                    extra_allocations[goal["Name"]], 
+                    monthly_allocations[goal["Name"]]
+                )
+                payable_loans = debt_recommendations.get("payable_loans", [])
+                final_months = debt_recommendations.get("final_months", 0)
+
+                if goal["CompletionMonths"] is None:
+                    goal["CompletionMonths"] = final_months
+
+                if current_month >= goal["CompletionMonths"]:
+                    goal["Completed"] = True
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Recos": payable_loans,
+                        "Slack": monthly_allocations[goal["Name"]],
+                        "ex_savings": extra_allocations[goal["Name"]],
+                        "Amount": goal["Amount"],
+                        "Priority": goal["Priority"],
+                        "Completion Month": current_month + 1,
+                        "AllocationHistory": goal["AllocationHistory"],
+                    })
+            elif goal["Name"] == "Boost Emergency Fund":
+                if goal["Saved"] >= goal["Amount"]:
+                    goal["Completed"] = True
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Amount": goal["Amount"],
+                        "Slack": monthly_allocations[goal["Name"]],
+                        "ex_savings": extra_allocations[goal["Name"]],
+                        "Priority": goal["Priority"],
+                        "Completion Month": current_month + 1,
+                        "AllocationHistory": goal["AllocationHistory"],
+                    })
+            else:
+                # Handle general goals with time limit checks
+                if months_to_complete > goal["Time"]:
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Amount": goal["Amount"],
+                        "Saved": goal["Saved"],
+                        "Slack": monthly_allocations.get(goal["Name"], 0),
+                        "ex_savings": extra_allocations[goal["Name"]],
+                        "Priority": goal["Priority"],
+                        "Completion Month": current_month + 1,
+                        "Time Limit": goal["Time"],
+                        "Message": "Goal cannot be completed within the time limit.",
+                        "AllocationHistory": goal["AllocationHistory"],
+                    })
+                    goal["Completed"] = True
+                    continue
+                else:
+                    if goal["Saved"] >= goal["Amount"]:
+                        goal["Completed"] = True
+                        schedule.append({
+                            "process": "parallel",
+                            "Goal": goal["Name"],
+                            "Amount": goal["Amount"],
+                            "Slack": monthly_allocations.get(goal["Name"], 0),
+                            "ex_savings": extra_allocations[goal["Name"]],
+                            "Priority": goal["Priority"],
+                            "Completion Month": current_month + 1,
+                            "AllocationHistory": goal["AllocationHistory"],
+                        })
+
+        # Remove completed goals
+        remaining_goals = [goal for goal in remaining_goals if not goal["Completed"]]
+        current_month += 1
+
+    # Sort the schedule by priority before returning
+    schedule = sorted(schedule, key=lambda x: x.get("Priority", float("inf")))
+
+    return schedule
+
+def payOffDebtRecos_internal(data, slack, ex_savings):    
+    # print("Inside payOffDebtRecos_internal")
+    formData = data.get('data', {})
+    form1Data = data.get('data1', {})
+    debtData = data.get('debtData', {})
+    methodType = data.get('method')
+    
+    method = "SB" if methodType == "Snowball" else "AV"
+
+   # Extract relevant fields
+    M1 = float(formData.get('M1', 0) or 0)
+    M2 = float(formData.get('M2', 0) or 0)
+    M3 = float(formData.get('M3', 0) or 0)
+    M4 = float(formData.get('M4', 0) or 0)
+    EFT = float(form1Data.get('EFT', 3) or 3)
+    
+
+    payable_loans = []
+
+    # Initialize outputs
+    loans = []
+    remaining_ex_savings = ex_savings
+    final_months = 0
+    
+    
+     # Debt repayment logic
+    if method == "SB":  # Snowball method
+        debtData = sorted([loan for loan in debtData if float(loan['amount']) > 0], key=lambda x: float(x['amount']))
+        for loan in debtData:
+            loan_amount = float(loan['amount'])
+            if remaining_ex_savings > loan_amount:
+                remaining_ex_savings -= loan_amount
+                loans.append(f"{loan['name']} of {loan_amount} can be paid off immediately using extra savings.")
+            elif remaining_ex_savings > 0:
+                loan['amount'] = loan_amount - remaining_ex_savings
+                loans.append(f"A part of {loan['name']} of {remaining_ex_savings} can be paid off using extra savings.")
+                remaining_ex_savings = 0
+
+            if float(loan['amount']) > 0 and slack > 0:
+                months = int(float(loan['amount']) / slack)
+                final_months += months
+                loans.append(f"Remaining {loan['name']} of {loan['amount']} can be paid off with slack in {months} months.")
+            elif float(loan['amount']) > 0:
+                loans.append(f"{loan['name']} cannot be paid off due to insufficient slack.")
+    elif method == "AV":  # Avalanche method
+        debtData = sorted([loan for loan in debtData if float(loan['amount']) > 0], key=lambda x: float(x['apr']), reverse=True)
+        for loan in debtData:
+            loan_amount = float(loan['amount'])
+            if remaining_ex_savings > loan_amount:
+                remaining_ex_savings -= loan_amount
+                loans.append(f"{loan['name']} of {loan_amount} can be paid off immediately using extra savings.")
+            elif remaining_ex_savings > 0:
+                loan['amount'] -= remaining_ex_savings
+                loans.append(f"A part of {loan['name']} of {remaining_ex_savings} can be paid off using extra savings.")
+                remaining_ex_savings = 0
+
+            if loan['amount'] > 0 and slack > 0:
+                months = int(loan['amount'] / slack)
+                final_months += months
+                loans.append(f"Remaining {loan['name']} of {loan['amount']} can be paid off with slack in {months} months.")
+            elif loan['amount'] > 0:
+                loans.append(f"{loan['name']} cannot be paid off due to insufficient slack.")
+                
+
+    # Return debt payoff results and updated extra savings
+    return {
+        'payable_loans': loans,
+        'final_months': final_months,
+        'remaining_ex_savings': remaining_ex_savings
+    }
+
+
+@csrf_exempt
+def schedule_parallel245(request):    
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
+
+    try:
+        # Parse JSON data from the request body
+        data = json.loads(request.body.decode('utf-8'))
+        
+        print("data is ")
+        print(data)
+        
+        user_id = data.get("userName")
+        goals = data.get("goals", [])
+
+        if not user_id:
+            return JsonResponse({"error": "user_id is required"}, status=400)
+
+        # Fetch data from DynamoDB
+        table_name = "financial_reboot_inputs"
+        dynamo_data, error = fetch_data_from_dynamodb(table_name, user_id)
+        
+        if error:
+            return JsonResponse({"error": error}, status=500)
+
+        # Extract required fields
+        M1 = float(dynamo_data.get("M1", 0))  
+        M2 = float(dynamo_data.get("M2", 0))
+        M3 = float(dynamo_data.get("M3", 0))
+        M4 = float(dynamo_data.get("M4", 0))
+        
+        T1 = float(dynamo_data.get("T1", 0))  
+        T2 = float(dynamo_data.get("T2", 0))
+        T3 = float(dynamo_data.get("T3", 0))
+        T4 = float(dynamo_data.get("T4", 0))
+
+        expenses = 3 * (M2 + M3 + M4) 
+        
+        # Calculate monthly savings
+        monthly_savings = M1 - (M2 + M3 + M4)
+        ex_savings = T1 - expenses
+
+        if monthly_savings <= 0:
+            return JsonResponse({"error": "Monthly savings must be greater than zero"}, status=400)
+
+        # Call the prioritization and scheduling logic
+        schedule = parallel_scheduler(goals, monthly_savings, ex_savings)
         
         print("schedule 1")
         print(schedule)
@@ -431,15 +749,20 @@ def schedule_parallel(request):
         return JsonResponse({"error": "Invalid JSON input"}, status=400)
 
 
-def parallel_scheduler(goals, monthly_savings):
+def parallel_scheduler245(goals, monthly_savings, extra_savings):
     """
-    Prioritize and allocate monthly savings to goals based on priority and time available.
+    Prioritize and allocate monthly and extra savings to goals based on priority and time available.
     """
+    # Define a small threshold to handle negligible amounts
+    THRESHOLD = 1e-2
+
     # Sort goals by priority (lower priority number = higher priority)
     goals = sorted(goals, key=lambda x: x.get("priority", float("inf")))
 
     schedule = []
     current_month = 0
+
+    print("Initial extra_savings:", extra_savings)
 
     # Initialize the remaining goals
     remaining_goals = [
@@ -455,7 +778,6 @@ def parallel_scheduler(goals, monthly_savings):
             "Method": goal.get("method", ""),
             "Completed": False,
             "AllocationHistory": [],
-            "CompletionMonths": None,  # Track total months needed for this goal
         }
         for goal in goals
     ]
@@ -474,25 +796,53 @@ def parallel_scheduler(goals, monthly_savings):
         if not active_goals:
             break
 
-        # print("Active Goals:", active_goals)
-
         # Calculate total weight based on priority
         total_weight = sum(1 / goal["Priority"] for goal in active_goals if goal["Priority"] > 0)
 
         # Precompute allocation for all active goals
         allocations = {
-            goal["Name"]: ((1 / goal["Priority"]) / total_weight) * monthly_savings
+            goal["Name"]: ((1 / goal["Priority"]) / total_weight)
             for goal in active_goals
         }
 
-        # print("Total Weight:", total_weight)
-        # print("Allocations:", allocations)
+        # Calculate monthly savings allocation for each goal
+        monthly_allocations = {
+            goal["Name"]: monthly_savings * allocations[goal["Name"]]
+            for goal in active_goals
+        }
 
-        # Allocate savings to active goals
+        # Calculate extra savings allocation for each goal (if extra savings > 0)
+        extra_allocations = {
+            goal["Name"]: extra_savings * allocations[goal["Name"]]
+            for goal in active_goals
+        } if extra_savings > 0 else {
+            goal["Name"]: 0
+            for goal in active_goals
+        }
+
+        print("monthly_allocations:", monthly_allocations)
+        print("Extra Allocations:", extra_allocations)
+
+        # Allocate both monthly and extra savings
         for goal in active_goals:
-            monthly_allocation = allocations[goal["Name"]]
+            monthly_allocation = monthly_allocations[goal["Name"]]
+            extra_allocation = extra_allocations[goal["Name"]]
 
-            # Handle "Become Debt Free"
+            # Save the extra_allocation for the schedule
+            goal_extra_savings = extra_allocation  # Preserve this value
+
+            total_allocation = monthly_allocation + extra_allocation
+
+            # Deduct extra allocation from extra savings
+            extra_savings -= extra_allocation
+            extra_savings = max(0, extra_savings)  # Ensure it doesn't go negative
+
+            print(f"Allocating {monthly_allocation:.2f} + {goal_extra_savings:.2f} to {goal['Name']}")
+
+            goal["Saved"] += total_allocation
+            goal["AllocationHistory"].append({"Amount": total_allocation, "Duration": 1})
+
+            # Special handling for "Become Debt Free"
             if goal["Name"] == "Become Debt Free":
                 request_data = {
                     "data": goal["Data"],
@@ -500,69 +850,43 @@ def parallel_scheduler(goals, monthly_savings):
                     "debtData": goal["DebtData"],
                     "method": goal["Method"],
                 }
+                
+                print(" "+ monthly_allocation)
 
                 # Get debt recommendations
-                debt_recommendations = payOffDebtRecos_internal(request_data)
+                debt_recommendations = payOffDebtRecos_internal_par(request_data, goal_extra_savings, monthly_allocation)
                 payable_loans = debt_recommendations.get("payable_loans", [])
                 final_months = debt_recommendations.get("final_months", 0)
 
-                # Set the completion months if not already set
-                if goal["CompletionMonths"] is None:
-                    goal["CompletionMonths"] = final_months
-
-                # Allocate based on completion time
-                if current_month < goal["CompletionMonths"]:
-                    goal["Saved"] += monthly_allocation
-                    goal["AllocationHistory"].append({"Amount": monthly_allocation, "Duration": 1})
-                    # print(f"Allocating {monthly_allocation:.2f} to {goal['Name']}")
-
-                if current_month == goal["CompletionMonths"]:
+                if current_month >= final_months:
                     goal["Completed"] = True
                     schedule.append({
                         "process": "parallel",
                         "Goal": goal["Name"],
                         "Recos": payable_loans,
                         "Slack": monthly_allocation,
+                        "ex_savings": goal_extra_savings,
                         "Amount": goal["Amount"],
                         "Priority": goal["Priority"],
                         "Completion Month": current_month + 1,
                         "AllocationHistory": goal["AllocationHistory"],
                     })
 
-            # Handle "Boost Emergency Fund"
-            elif goal["Name"] == "Boost Emergency Fund":
-                goal["Saved"] += monthly_allocation
-                if goal["Saved"] >= goal["Amount"]:
-                    goal["Completed"] = True
-                    schedule.append({
-                        "process": "parallel",
-                        "Goal": goal["Name"],
-                        "Amount": goal["Amount"],
-                        "Slack": monthly_allocation,
-                        "Priority": goal["Priority"],
-                        "Completion Month": current_month + 1,
-                        "AllocationHistory": goal["AllocationHistory"],
-                    })
-
-            # Handle other goals
-            else:
-                goal["Saved"] += monthly_allocation
-                if goal["Saved"] >= goal["Amount"]:
-                    goal["Completed"] = True
-                    schedule.append({
-                        "process": "parallel",
-                        "Goal": goal["Name"],
-                        "Amount": goal["Amount"],
-                        "Slack": monthly_allocation,
-                        "Priority": goal["Priority"],
-                        "Completion Month": current_month + 1,
-                        "AllocationHistory": goal["AllocationHistory"],
-                    })
+            elif goal["Saved"] >= goal["Amount"]:
+                goal["Completed"] = True
+                schedule.append({
+                    "process": "parallel",
+                    "Goal": goal["Name"],
+                    "Amount": goal["Amount"],
+                    "Slack": monthly_allocation,
+                    "ex_savings": goal_extra_savings,
+                    "Priority": goal["Priority"],
+                    "Completion Month": current_month + 1,
+                    "AllocationHistory": goal["AllocationHistory"],
+                })
 
         # Remove completed goals
         remaining_goals = [goal for goal in remaining_goals if not goal["Completed"]]
-
-        # print("Remaining Goals:", remaining_goals)
 
         # Increment the current month
         current_month += 1
@@ -572,6 +896,94 @@ def parallel_scheduler(goals, monthly_savings):
 
     print("Final Schedule:", schedule)
     return schedule
+    
+def payOffDebtRecos_internal_par(data, ex_savings, slack):    
+    # print("Inside payOffDebtRecos_internal")
+    formData = data.get('data', {})
+    form1Data = data.get('data1', {})
+    debtData = data.get('debtData', {})
+    methodType = data.get('method')
+    
+    method = "SB" if methodType == "Snowball" else "AV"
+
+    # Extract relevant fields
+    M1 = float(formData.get('M1', 0) or 0)
+    M2 = float(formData.get('M2', 0) or 0)
+    M3 = float(formData.get('M3', 0) or 0)
+    M4 = float(formData.get('M4', 0) or 0)
+    EFT = float(form1Data.get('EFT', 3) or 3)
+    
+    # print("Slack "+ str(slack))
+    
+    payable_loans = []
+
+    # Initialize outputs
+    loans = []
+    remaining_ex_savings = ex_savings
+    final_months = 0
+    total_amount_remaining = 0  # Track the total remaining loan amount
+    
+    # Debt repayment logic
+    if method == "SB":  # Snowball method
+        debtData = sorted([loan for loan in debtData if float(loan['amount']) > 0], key=lambda x: float(x['amount']))
+        for loan in debtData:
+            loan_amount = float(loan['amount'])
+            
+            # Deduct from extra savings
+            if remaining_ex_savings > loan_amount:
+                remaining_ex_savings -= loan_amount
+                loans.append(f"{loan['name']} of {loan_amount} can be paid off immediately using extra savings.")
+                loan_amount = 0
+            elif remaining_ex_savings > 0:
+                loans.append(f"A part of {loan['name']} of {remaining_ex_savings} can be paid off using extra savings.")
+                loan_amount -= remaining_ex_savings
+                remaining_ex_savings = 0
+            
+            # Calculate months required with slack for the remaining loan amount
+            if loan_amount > 0:
+                total_amount_remaining += loan_amount
+                if slack > 0:
+                    months = int(loan_amount / slack)
+                    final_months += months
+                    loans.append(f"Remaining {loan['name']} of {loan_amount} can be paid off with slack in {months} months.")
+                else:
+                    loans.append(f"{loan['name']} cannot be paid off due to insufficient slack.")
+    
+    elif method == "AV":  # Avalanche method
+        debtData = sorted([loan for loan in debtData if float(loan['amount']) > 0], key=lambda x: float(x['apr']), reverse=True)
+        for loan in debtData:
+            loan_amount = float(loan['amount'])
+            
+            # Deduct from extra savings
+            if remaining_ex_savings > loan_amount:
+                remaining_ex_savings -= loan_amount
+                loans.append(f"{loan['name']} of {loan_amount} can be paid off immediately using extra savings.")
+                loan_amount = 0
+            elif remaining_ex_savings > 0:
+                loans.append(f"A part of {loan['name']} of {remaining_ex_savings} can be paid off using extra savings.")
+                loan_amount -= remaining_ex_savings
+                remaining_ex_savings = 0
+            
+            # Calculate months required with slack for the remaining loan amount
+            if loan_amount > 0:
+                total_amount_remaining += loan_amount
+                if slack > 0:
+                    months = int(loan_amount / slack)
+                    final_months += months
+                    loans.append(f"Remaining {loan['name']} of {loan_amount} can be paid off with slack in {months} months.")
+                else:
+                    loans.append(f"{loan['name']} cannot be paid off due to insufficient slack.")
+    
+    # Update final months if there are remaining amounts not covered by slack
+    if total_amount_remaining > 0 and slack > 0:
+        final_months += int(total_amount_remaining / slack)
+    
+    # Return debt payoff results and updated extra savings
+    return {
+        'payable_loans': loans,
+        'final_months': final_months,
+        'remaining_ex_savings': remaining_ex_savings
+    } 
       
 def payOffDebtRecos_internal(data, ex_savings):    
     print("Inside payOffDebtRecos_internal")
@@ -864,16 +1276,16 @@ def save_to_dynamo(request):
         
         
         # #Get the environment variable
-        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # Parse the JSON string
-        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # # Parse the JSON string
+        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # Extract the value
-        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+        # # Extract the value
+        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
         
         # Add username and created date to the data
         data['user_name'] = data['username']
@@ -881,8 +1293,8 @@ def save_to_dynamo(request):
         request_from = data['page']
         
         # AWS credentials from environment variables
-        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
         region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
