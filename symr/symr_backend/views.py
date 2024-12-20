@@ -1038,15 +1038,17 @@ def payOffDebtRecos_internal(data, ex_savings):
                 remaining_ex_savings -= loan_amount
                 loans.append(f"{loan['name']} of {loan_amount} can be paid off immediately using extra savings.")
             elif remaining_ex_savings > 0:
-                loan['amount'] -= remaining_ex_savings
+                # Ensure loan['amount'] is a numeric type before subtracting
+                loan['amount'] = float(loan['amount'])  # Convert to float if it is a string
+                loan['amount'] -= remaining_ex_savings  # Now you can subtract
                 loans.append(f"A part of {loan['name']} of {remaining_ex_savings} can be paid off using extra savings.")
                 remaining_ex_savings = 0
 
-            if loan['amount'] > 0 and slack > 0:
-                months = int(loan['amount'] / slack)
+            if loan_amount > 0 and slack > 0:
+                months = int(float(loan['amount']) / slack)
                 final_months += months
                 loans.append(f"Remaining {loan['name']} of {loan['amount']} can be paid off with slack in {months} months.")
-            elif loan['amount'] > 0:
+            elif loan_amount > 0:
                 loans.append(f"{loan['name']} cannot be paid off due to insufficient slack.")
                 
 
