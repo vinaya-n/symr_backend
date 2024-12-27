@@ -44,6 +44,7 @@ import csv
 from django.utils import timezone
 from datetime import *
 import datetime
+from decimal import Decimal
 
 # Set up logging
 # logging.basicConfig(
@@ -330,6 +331,7 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
                 "time_in_months": months_to_complete,
                 "priority": goal.get('priority', 1),
                 "ex_savings":ex_savings,
+                "TimeLimit":time_available,
                 })
             elif goal['goal'] == "Boost Emergency Fund":  
                 schedule.append({
@@ -343,6 +345,7 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
                     "priority": goal.get('priority', 1),
                     "Slack": monthly_savings,
                     "ex_savings":ex_savings,
+                    "TimeLimit":time_available,
                 })    
             else:    
                 schedule.append({
@@ -357,6 +360,7 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
                     "priority": goal.get('priority', 1),
                     "message": f"Goal cannot be completed within the time limit.",
                     "ex_savings":ex_savings,
+                    "TimeLimit":time_available,
                 })
             continue  # Skip to the next goal
 
@@ -371,6 +375,7 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
             "time_in_months": months_to_complete,
             "ex_savings":ex_savings,
             "priority": goal.get('priority', 1),  # Include the priority in the schedule
+            "TimeLimit":time_available,
         })
 
         # Update the current_month to this goal's completion month
@@ -528,8 +533,15 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
             # Calculate months to complete with the current allocation
             if total_allocation > 0:
                 months_to_complete = remaining_amount / total_allocation
+                # Round up to the nearest month as savings occur monthly
+                months_to_complete = int(-(-months_to_complete // 1))
             else:
                 months_to_complete = float("inf")
+            print("goal Time")    
+            print(goal["Time"]) 
+            print("months_to_complete")    
+            print(months_to_complete)    
+
 
             # Handle specific goals
             if goal["Name"] == "Become Debt Free":
@@ -576,27 +588,34 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
                         "Completion Month": current_month + 1,
                         "AllocationHistory": goal["AllocationHistory"],
                     })
-            else:
-                # Handle general goals with time limit checks
+            else:                
+                # Check if the goal can be completed within the time limit
                 if months_to_complete > goal["Time"]:
-                    schedule.append({
-                        "process": "parallel",
-                        "Goal": goal["Name"],
-                        "Amount": goal["Amount"],
-                        "Saved": goal["Saved"],
-                        "Slack": monthly_allocations.get(goal["Name"], 0),
-                        "ex_savings": extra_allocations[goal["Name"]],
-                        "Priority": goal["Priority"],
-                        "Completion Month": current_month + 1,
-                        "Time Limit": goal["Time"],
-                        "Message": "Goal cannot be completed within the time limit.",
-                        "AllocationHistory": goal["AllocationHistory"],
-                    })
-                    goal["Completed"] = True
-                    continue
+                    if goal["Saved"] >= goal["Amount"]:
+                        print("Hello, please work!")
+                        goal["Completed"] = True
+                        # If the goal exceeds the time limit, mark it as unachievable
+                        goal["CompletionMonths"] = months_to_complete
+                        schedule.append({
+                            "process": "parallel",
+                            "Goal": goal["Name"],
+                            "Amount": goal["Amount"],
+                            "Saved": goal["Saved"],
+                            "Slack": monthly_allocations.get(goal["Name"], 0),
+                            "ex_savings": extra_allocations[goal["Name"]],
+                            "Priority": goal["Priority"],
+                            "Completion Month": current_month + months_to_complete,
+                            "TimeLimit": goal["Time"],
+                            "Message": "Goal cannot be completed within the time limit.",
+                            "AllocationHistory": goal["AllocationHistory"],
+                        })
+                    
                 else:
+                    print("Hello, ELSE please work!")
+                    # If the goal can be completed within the time limit
                     if goal["Saved"] >= goal["Amount"]:
                         goal["Completed"] = True
+                        goal["CompletionMonths"] = current_month + months_to_complete
                         schedule.append({
                             "process": "parallel",
                             "Goal": goal["Name"],
@@ -604,8 +623,9 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
                             "Slack": monthly_allocations.get(goal["Name"], 0),
                             "ex_savings": extra_allocations[goal["Name"]],
                             "Priority": goal["Priority"],
-                            "Completion Month": current_month + 1,
+                            "Completion Month": current_month + months_to_complete,
                             "AllocationHistory": goal["AllocationHistory"],
+                            "TimeLimit": goal["Time"],
                         })
 
         # Remove completed goals
@@ -1259,7 +1279,7 @@ def save_to_dynamo(request):
         
         try:
             # Parse request body
-            data = json.loads(request.body)
+            data = json.loads(request.body , parse_float=Decimal)
             print(f"Data received: {data}")
         except Exception as e:
             print(f"Error parsing request body: {e}")
@@ -1277,17 +1297,17 @@ def save_to_dynamo(request):
         
         
         
-        # #Get the environment variable
-        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        #Get the environment variable
+        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # # Parse the JSON string
-        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # Parse the JSON string
+        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # # Extract the value
-        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+        # Extract the value
+        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
         
         # Add username and created date to the data
         data['user_name'] = data['username']
@@ -1295,8 +1315,8 @@ def save_to_dynamo(request):
         request_from = data['page']
         
         # AWS credentials from environment variables
-        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
         region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
