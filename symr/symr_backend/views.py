@@ -111,6 +111,8 @@ def fetch_data(request):
             table = dynamodb.Table('symr_investing') 
         elif request_from == "Fin_Reboot":
             table = dynamodb.Table('financial_reboot_common') 
+        elif request_from == "fin_plan":
+            table = dynamodb.Table('financial_planning')     
 
         response = table.get_item(Key={'user_name': user_name})
         
@@ -1320,6 +1322,8 @@ def save_to_dynamo(request):
         region_name = os.getenv('AWS_REGION')
         
         print("before initializing")
+        print("request_from ")
+        print(request_from)
         # Initialize DynamoDB resource
         dynamodb = boto3.resource('dynamodb',
                                   region_name=region_name,
@@ -1345,6 +1349,9 @@ def save_to_dynamo(request):
             input_table = dynamodb.Table('financial_reboot_inputs')
             emis_table = dynamodb.Table('financial_reboot_emis')  # Separate table for emis entries
             checkingAccounts_table = dynamodb.Table('financial_reboot_acc')  # Separate table for checkingAccounts entries
+        if request_from == "fin_plan":
+            table = dynamodb.Table('financial_planning')   
+   
 
 
         # Check if the record exists
@@ -1389,50 +1396,50 @@ def save_to_dynamo(request):
 
             
          
+            if request_from == "fin_reboot":    
+                existing_input_item = input_table.get_item(Key={'user_name': data['user_name']}).get('Item')
+                print("existing_input_item")
+                print(existing_input_item)   
                 
-            existing_input_item = input_table.get_item(Key={'user_name': data['user_name']}).get('Item')
-            print("existing_input_item")
-            print(existing_input_item)   
-            
-            if existing_input_item:
-                # Update the existing item with new values from data
-                for key, value in input_data.items():
-                    if key not in ['user_name', 'created_date']:
-                        existing_input_item[key] = value
-                
-                # Construct the update expression
-                update_expression = []
-                expression_attribute_names = {}
-                expression_attribute_values = {}
-
-                for key, value in existing_input_item.items():
-                    if key not in ['user_name', 'created_date']:
-                        placeholder_name = f'#{key}'
-                        update_expression.append(f'{placeholder_name} = :{key}')
-                        expression_attribute_names[placeholder_name] = key
-                        expression_attribute_values[f':{key}'] = value
-
-                if update_expression:
-                    update_expression_str = 'set ' + ', '.join(update_expression)
+                if existing_input_item:
+                    # Update the existing item with new values from data
+                    for key, value in input_data.items():
+                        if key not in ['user_name', 'created_date']:
+                            existing_input_item[key] = value
                     
-                    print("update_expression_str is "+update_expression_str)
+                    # Construct the update expression
+                    update_expression = []
+                    expression_attribute_names = {}
+                    expression_attribute_values = {}
 
-                    input_table.update_item(
-                        Key={'user_name': data['user_name']},
-                        UpdateExpression=update_expression_str,
-                        ExpressionAttributeNames=expression_attribute_names,
-                        ExpressionAttributeValues=expression_attribute_values
-                    )
-            
-            else:
-                # Insert logic (unchanged)
-                print("inside insert else")
-                print("input_data before inserting into DynamoDB:", input_data)
-                input_data['user_name'] = data.get('user_name')  # Ensure Partition Key is present
-                input_data['created_at'] = datetime.datetime.now().isoformat()
-                input_table.put_item(Item=input_data)
+                    for key, value in existing_input_item.items():
+                        if key not in ['user_name', 'created_date']:
+                            placeholder_name = f'#{key}'
+                            update_expression.append(f'{placeholder_name} = :{key}')
+                            expression_attribute_names[placeholder_name] = key
+                            expression_attribute_values[f':{key}'] = value
+
+                    if update_expression:
+                        update_expression_str = 'set ' + ', '.join(update_expression)
+                        
+                        print("update_expression_str is "+update_expression_str)
+
+                        input_table.update_item(
+                            Key={'user_name': data['user_name']},
+                            UpdateExpression=update_expression_str,
+                            ExpressionAttributeNames=expression_attribute_names,
+                            ExpressionAttributeValues=expression_attribute_values
+                        )
                 
-            #return JsonResponse({'message': 'Record updated successfully'})
+                else:
+                    # Insert logic (unchanged)
+                    print("inside insert else")
+                    print("input_data before inserting into DynamoDB:", input_data)
+                    input_data['user_name'] = data.get('user_name')  # Ensure Partition Key is present
+                    input_data['created_at'] = datetime.datetime.now().isoformat()
+                    input_table.put_item(Item=input_data)
+                    
+                #return JsonResponse({'message': 'Record updated successfully'})
         else:
             # Insert logic (unchanged)
             data['created_at'] = datetime.datetime.now().isoformat()
