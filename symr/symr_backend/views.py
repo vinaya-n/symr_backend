@@ -2287,7 +2287,7 @@ def list_google_drive_files(request):
 @csrf_exempt
 def upload_file(request):
   # Get the environment variable
-  ssaws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+  aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
   aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
   # Parse the JSON string
