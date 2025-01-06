@@ -42,8 +42,8 @@ import logging
 import sys
 import csv
 from django.utils import timezone
-from datetime import *
-import datetime
+# from datetime import *
+# import datetime
 from decimal import Decimal
 
 # Set up logging
@@ -1313,7 +1313,7 @@ def save_to_dynamo(request):
         
         # Add username and created date to the data
         data['user_name'] = data['username']
-        data['created_date'] = datetime.datetime.now().isoformat()
+        data['created_date'] = datetime.now().isoformat()
         request_from = data['page']
         
         # AWS credentials from environment variables
@@ -1436,13 +1436,13 @@ def save_to_dynamo(request):
                     print("inside insert else")
                     print("input_data before inserting into DynamoDB:", input_data)
                     input_data['user_name'] = data.get('user_name')  # Ensure Partition Key is present
-                    input_data['created_at'] = datetime.datetime.now().isoformat()
+                    input_data['created_at'] = datetime.now().isoformat()
                     input_table.put_item(Item=input_data)
                     
                 #return JsonResponse({'message': 'Record updated successfully'})
         else:
             # Insert logic (unchanged)
-            data['created_at'] = datetime.datetime.now().isoformat()
+            data['created_at'] = datetime.now().isoformat()
             table.put_item(Item=data)
             #return JsonResponse({'message': 'Record inserted successfully'})
         
@@ -2287,7 +2287,7 @@ def list_google_drive_files(request):
 @csrf_exempt
 def upload_file(request):
   # Get the environment variable
-  aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+  ssaws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
   aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
   # Parse the JSON string
@@ -3006,7 +3006,7 @@ def commonResults(request):
 
 
 def get_next_months(n):
-    today = datetime.datetime.now()
+    today = datetime.now()
     
     months = []
     total_months = []
