@@ -94,8 +94,7 @@ def fetch_data(request):
                                   aws_access_key_id=aws_access_key_id_e,
                                   aws_secret_access_key=aws_secret_access_key_e)
         # table = dynamodb.Table('know_your_metrics')
-        if request_from == "FHC":     
-            print("inside request_from FHC")    
+        if request_from == "FHC":                 
             table = dynamodb.Table('know_your_metrics')
         elif request_from == "AS":
             table = dynamodb.Table('symr_allocate_savings')
@@ -112,7 +111,11 @@ def fetch_data(request):
         elif request_from == "Fin_Reboot":
             table = dynamodb.Table('financial_reboot_common') 
         elif request_from == "fin_plan":
-            table = dynamodb.Table('financial_planning')     
+            print("inside request_from FHC")    
+            table = dynamodb.Table('financial_planning')
+        elif request_from == "fin_flow":
+            print("inside request_from fin_flow")    
+            table = dynamodb.Table('financial_flow')        
 
         response = table.get_item(Key={'user_name': user_name})
         
@@ -1350,7 +1353,9 @@ def save_to_dynamo(request):
             emis_table = dynamodb.Table('financial_reboot_emis')  # Separate table for emis entries
             checkingAccounts_table = dynamodb.Table('financial_reboot_acc')  # Separate table for checkingAccounts entries
         if request_from == "fin_plan":
-            table = dynamodb.Table('financial_planning')   
+            table = dynamodb.Table('financial_planning') 
+        if request_from == "fin_flow":
+            table = dynamodb.Table('financial_flow')         
    
 
 
