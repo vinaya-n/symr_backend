@@ -113,11 +113,29 @@ def fetch_data(request):
         elif request_from == "fin_plan":
             print("inside request_from FHC")    
             table = dynamodb.Table('financial_planning')
-        elif request_from == "fin_flow":
-            print("inside request_from fin_flow")    
-            table = dynamodb.Table('financial_flow')        
+        elif request_from == "fin_schedule":
+            print("inside request_from fin_schedule")    
+            table = dynamodb.Table('financial_schedule')        
+            
+        if request_from == "fin_flow":
+            print("inside request_from fin_flow")
+            table = dynamodb.Table('financial_flow')
 
-        response = table.get_item(Key={'user_name': user_name})
+            # Fetch `month_year` from the request data
+            month_year = data.get('month_year')
+            if not month_year:
+                return JsonResponse({'error': 'month_year is required for fin_flow'}, status=400)
+                
+            # Query the table using `user_name` and `month_year`
+            response = table.get_item(
+                Key={
+                    'user_name': user_name,
+                    'month_year': month_year,  # Composite key to fetch specific month data
+                }
+            )
+
+        else:     
+            response = table.get_item(Key={'user_name': user_name})
         
         print("After response")
         print(response)
@@ -1273,7 +1291,72 @@ def schedule_sequential123(goals, monthly_savings):
 
     return schedule
 
-    
+
+
+@csrf_exempt
+def save_to_dynamo_schedule(request):
+    if request.method == 'POST':
+        try:
+            # Parse incoming request body
+            input_data = json.loads(request.body, parse_float=Decimal)
+            print("Received input_data:", input_data)
+
+            # Ensure input_data is a dictionary
+            if not isinstance(input_data, dict):
+                return JsonResponse({'error': 'Expected a dictionary of data objects'}, status=400)
+
+            # Extract username and goals
+            user_name = input_data.get('username')
+            page = input_data.get('page', 'financial_schedule')
+            goals = input_data.get('goals', {})
+            
+            if not user_name or not goals:
+                return JsonResponse({'error': 'Username and goals are required'}, status=400)
+
+            # Initialize DynamoDB resource
+            dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
+            table = dynamodb.Table('financial_schedule')
+
+            # Check if an entry for the user already exists
+            response = table.get_item(Key={'user_name': user_name})
+            existing_item = response.get('Item')
+
+            if existing_item:
+                print("Updating existing entry for user:", user_name)
+
+                # Merge existing goals with new goals
+                existing_goals = existing_item.get('goals', {})
+                merged_goals = {**existing_goals, **goals}
+
+                # Update the DynamoDB entry
+                table.update_item(
+                    Key={'user_name': user_name},
+                    UpdateExpression="SET goals = :goals, updated_at = :updated_at",
+                    ExpressionAttributeValues={
+                        ':goals': merged_goals,
+                        ':updated_at': datetime.now().isoformat(),
+                    }
+                )
+            else:
+                print("Creating new entry for user:", user_name)
+
+                # Create a new entry
+                item = {
+                    'user_name': user_name,
+                    'page': page,
+                    'goals': goals,
+                    'created_at': datetime.now().isoformat(),
+                    'updated_at': datetime.now().isoformat(),
+                }
+                table.put_item(Item=item)
+
+            return JsonResponse({'message': 'Data saved successfully'})
+
+        except Exception as e:
+            print("Error:", str(e))
+            return JsonResponse({'error': str(e)}, status=500)
+
+    return JsonResponse({'error': 'Invalid request method'}, status=400)
     
 @csrf_exempt
 def save_to_dynamo(request):
@@ -1353,72 +1436,40 @@ def save_to_dynamo(request):
             emis_table = dynamodb.Table('financial_reboot_emis')  # Separate table for emis entries
             checkingAccounts_table = dynamodb.Table('financial_reboot_acc')  # Separate table for checkingAccounts entries
         if request_from == "fin_plan":
-            table = dynamodb.Table('financial_planning') 
+            table = dynamodb.Table('financial_planning')        
+        if request_from == "fin_schedule":
+            table = dynamodb.Table('financial_schedule')        
+            
+            
         if request_from == "fin_flow":
-            table = dynamodb.Table('financial_flow')         
-   
+            print("inside request_from fin_flow")
+            table = dynamodb.Table('financial_flow')
 
+            # Extract and validate required fields
+            user_name = data.get('username')
+            month_year = data.get('month_year')  # e.g., "January 2025"
+            input_data = data.get('input_data')
 
-        # Check if the record exists
-        response = table.get_item(
-            Key={
-                'user_name': data['user_name']
-            }
-        )
-        existing_item = table.get_item(Key={'user_name': data['user_name']}).get('Item')
+            if not user_name or not month_year or input_data is None:
+                return JsonResponse({'error': 'Missing required fields'}, status=400)
 
-        if existing_item:
-            print("inside existing item")
-            print(data)
-            # Update the existing item with new values from data
-            for key, value in data.items():
-                if key not in ['user_name', 'created_date']:
-                    existing_item[key] = value
-            
-            # Construct the update expression
-            update_expression = []
-            expression_attribute_names = {}
-            expression_attribute_values = {}
+            try:
+                existing_item = table.get_item(Key={'user_name': user_name, 'month_year': month_year}).get('Item')
 
-            for key, value in existing_item.items():
-                if key not in ['user_name', 'created_date']:
-                    placeholder_name = f'#{key}'
-                    update_expression.append(f'{placeholder_name} = :{key}')
-                    expression_attribute_names[placeholder_name] = key
-                    expression_attribute_values[f':{key}'] = value
-
-            if update_expression:
-                update_expression_str = 'set ' + ', '.join(update_expression)
-                
-                print("update_expression_str is "+update_expression_str)
-
-                table.update_item(
-                    Key={'user_name': data['user_name']},
-                    UpdateExpression=update_expression_str,
-                    ExpressionAttributeNames=expression_attribute_names,
-                    ExpressionAttributeValues=expression_attribute_values
-                )
-
-            
-         
-            if request_from == "fin_reboot":    
-                existing_input_item = input_table.get_item(Key={'user_name': data['user_name']}).get('Item')
-                print("existing_input_item")
-                print(existing_input_item)   
-                
-                if existing_input_item:
+                if existing_item:
+                    print("inside existing item fin_flow")
                     # Update the existing item with new values from data
-                    for key, value in input_data.items():
-                        if key not in ['user_name', 'created_date']:
-                            existing_input_item[key] = value
-                    
+                    for key, value in data.items():
+                        if key not in ['user_name', 'created_date', 'month_year']:  # Ensure 'month_year' is excluded
+                            existing_item[key] = value
+
                     # Construct the update expression
                     update_expression = []
                     expression_attribute_names = {}
                     expression_attribute_values = {}
 
-                    for key, value in existing_input_item.items():
-                        if key not in ['user_name', 'created_date']:
+                    for key, value in existing_item.items():
+                        if key not in ['user_name', 'created_date', 'month_year']:  # Ensure 'month_year' is excluded
                             placeholder_name = f'#{key}'
                             update_expression.append(f'{placeholder_name} = :{key}')
                             expression_attribute_names[placeholder_name] = key
@@ -1426,64 +1477,122 @@ def save_to_dynamo(request):
 
                     if update_expression:
                         update_expression_str = 'set ' + ', '.join(update_expression)
-                        
-                        print("update_expression_str is "+update_expression_str)
 
-                        input_table.update_item(
-                            Key={'user_name': data['user_name']},
+                        print("update_expression_str is " + update_expression_str)
+
+                        table.update_item(
+                            Key={'user_name': data['user_name'], 'month_year': month_year},  # Do not change 'month_year'
                             UpdateExpression=update_expression_str,
                             ExpressionAttributeNames=expression_attribute_names,
                             ExpressionAttributeValues=expression_attribute_values
                         )
-                
-                else:
-                    # Insert logic (unchanged)
-                    print("inside insert else")
-                    print("input_data before inserting into DynamoDB:", input_data)
-                    input_data['user_name'] = data.get('user_name')  # Ensure Partition Key is present
-                    input_data['created_at'] = datetime.now().isoformat()
-                    input_table.put_item(Item=input_data)
-                    
-                #return JsonResponse({'message': 'Record updated successfully'})
+                else:                 
+                    # Save the data with a composite key
+                    table.put_item(
+                        Item={
+                            'user_name': user_name,
+                            'month_year': month_year,
+                            'input_data': input_data,
+                            'created_date': datetime.now().isoformat(),
+                        }
+                    )
+                return JsonResponse({'message': 'Data saved successfully'})
+            except Exception as e:
+                print(f"Error saving data: {e}")
+                return JsonResponse({'error': str(e)}, status=500)    
+   
         else:
-            # Insert logic (unchanged)
-            data['created_at'] = datetime.now().isoformat()
-            table.put_item(Item=data)
-            #return JsonResponse({'message': 'Record inserted successfully'})
-        
-        
-               
-        
-        # ### Handle emis array ###
-        # if 'emis' in data and isinstance(data['emis'], list):
-            # print("emi_entry")
-            # for emi in data['emis']:
-                # print("emi_entry insert")
-                # print(emi)
-                # emi_entry = {
-                    # 'user_name': data['user_name'],
-                    # 'emi_id': str(emi.get('id')),  # Use a unique ID for each EMI item
-                    # 'value': emi.get('value', 0),  # Default value to 0 if not provided
-                    # 'created_date': data['created_date']
-                # }
-                # # Insert or update each EMI in the separate emis table
-                # emis_table.put_item(Item=emi_entry)
-        
-        # ### Handle emis array ###
-        # if 'checkingAccounts' in data and isinstance(data['checkingAccounts'], list):
-            # print("checkingAccount_entry")
-            # for checkingAccount in data['checkingAccounts']:
-                # print("checkingAccount_entry insert")
-                # print(checkingAccount_entry)
-                # checkingAccount_entry = {
-                    # 'user_name': data['user_name'],
-                    # 'checkingAccount_id': str(checkingAccount.get('id')),  # Use a unique ID for each EMI item
-                    # 'value': checkingAccount.get('value', 0),  # Default value to 0 if not provided
-                    # 'created_date': data['created_date']
-                # }
-                # # Insert or update each EMI in the separate emis table
-                # checkingAccounts_table.put_item(Item=checkingAccount_entry)    
-        
+
+            # Check if the record exists
+            response = table.get_item(
+                Key={
+                    'user_name': data['user_name']
+                }
+            )
+            existing_item = table.get_item(Key={'user_name': data['user_name']}).get('Item')
+
+            if existing_item:
+                print("inside existing item")
+                print(data)
+                # Update the existing item with new values from data
+                for key, value in data.items():
+                    if key not in ['user_name', 'created_date']:
+                        existing_item[key] = value
+                
+                # Construct the update expression
+                update_expression = []
+                expression_attribute_names = {}
+                expression_attribute_values = {}
+
+                for key, value in existing_item.items():
+                    if key not in ['user_name', 'created_date']:
+                        placeholder_name = f'#{key}'
+                        update_expression.append(f'{placeholder_name} = :{key}')
+                        expression_attribute_names[placeholder_name] = key
+                        expression_attribute_values[f':{key}'] = value
+
+                if update_expression:
+                    update_expression_str = 'set ' + ', '.join(update_expression)
+                    
+                    print("update_expression_str is "+update_expression_str)
+
+                    table.update_item(
+                        Key={'user_name': data['user_name']},
+                        UpdateExpression=update_expression_str,
+                        ExpressionAttributeNames=expression_attribute_names,
+                        ExpressionAttributeValues=expression_attribute_values
+                    )
+
+                
+             
+                if request_from == "fin_reboot":    
+                    existing_input_item = input_table.get_item(Key={'user_name': data['user_name']}).get('Item')
+                    print("existing_input_item")
+                    print(existing_input_item)   
+                    
+                    if existing_input_item:
+                        # Update the existing item with new values from data
+                        for key, value in input_data.items():
+                            if key not in ['user_name', 'created_date']:
+                                existing_input_item[key] = value
+                        
+                        # Construct the update expression
+                        update_expression = []
+                        expression_attribute_names = {}
+                        expression_attribute_values = {}
+
+                        for key, value in existing_input_item.items():
+                            if key not in ['user_name', 'created_date']:
+                                placeholder_name = f'#{key}'
+                                update_expression.append(f'{placeholder_name} = :{key}')
+                                expression_attribute_names[placeholder_name] = key
+                                expression_attribute_values[f':{key}'] = value
+
+                        if update_expression:
+                            update_expression_str = 'set ' + ', '.join(update_expression)
+                            
+                            print("update_expression_str is "+update_expression_str)
+
+                            input_table.update_item(
+                                Key={'user_name': data['user_name']},
+                                UpdateExpression=update_expression_str,
+                                ExpressionAttributeNames=expression_attribute_names,
+                                ExpressionAttributeValues=expression_attribute_values
+                            )
+                    
+                    else:
+                        # Insert logic (unchanged)
+                        print("inside insert else")
+                        print("input_data before inserting into DynamoDB:", input_data)
+                        input_data['user_name'] = data.get('user_name')  # Ensure Partition Key is present
+                        input_data['created_at'] = datetime.now().isoformat()
+                        input_table.put_item(Item=input_data)
+                        
+                    #return JsonResponse({'message': 'Record updated successfully'})
+            else:
+                # Insert logic (unchanged)
+                data['created_at'] = datetime.now().isoformat()
+                table.put_item(Item=data)
         
         print("after Save data to DynamoDB")
         

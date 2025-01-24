@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/oauth2callback/', views.oauth2callback, name='oauth2callback'),
     path('api/download-users/', views.download_cognito_users, name='download-users'),
     path('api/save_to_dynamo/', views.save_to_dynamo, name='save_to_dynamo'),
+    path('api/save_to_dynamo_schedule/', views.save_to_dynamo_schedule, name='save_to_dynamo_schedule'),
     path('api/fetch_data/', views.fetch_data, name='fetch_data'),
     #path('api/print-env/', views.print_env_vars, name='print_env_vars'),
     #path('api/oauth2callback/api/upload_to_google_drive', views.upload_to_google_drive, name='upload_to_google_drive'),
