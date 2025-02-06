@@ -45,6 +45,7 @@ from django.utils import timezone
 # from datetime import *
 # import datetime
 from decimal import Decimal
+from boto3.dynamodb.conditions import Key  # Add this import
 
 # Set up logging
 # logging.basicConfig(
@@ -61,33 +62,29 @@ from decimal import Decimal
 
 @csrf_exempt
 def fetch_data(request):
-    print("Inside fetch_data ")
     if request.method == 'POST':
         data = json.loads(request.body)
         user_name = data['username']
         request_from = data['page']
         
-        print("Inside fetch_data "+request_from)
-        print("user_name " +user_name)
 
         if not user_name:
             return JsonResponse({'error': 'User name is required'}, status=400)
             
         #Get the environment variable
-        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # Parse the JSON string
-        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # # Parse the JSON string
+        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # Extract the value
-        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+        # # Extract the value
+        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
 
-        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
-        print("inside request_from FHC") 
+        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
 
         dynamodb = boto3.resource('dynamodb',
                                   region_name=os.getenv('AWS_REGION'),
@@ -111,7 +108,6 @@ def fetch_data(request):
         elif request_from == "Fin_Reboot":
             table = dynamodb.Table('financial_reboot_common') 
         elif request_from == "fin_plan":
-            print("inside request_from FHC")    
             table = dynamodb.Table('financial_planning')
         elif request_from == "fin_schedule":
             print("inside request_from fin_schedule")    
@@ -137,8 +133,8 @@ def fetch_data(request):
         else:     
             response = table.get_item(Key={'user_name': user_name})
         
-        print("After response")
-        print(response)
+        # print("After response")
+        # print(response)
 
         if 'Item' in response:
             return JsonResponse(response['Item'])
@@ -151,19 +147,19 @@ def fetch_data_from_dynamodb(table_name, user_id):
     try:
         # Initialize the DynamoDB client
           #Get the environment variable
-        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # Parse the JSON string
-        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # # Parse the JSON string
+        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # Extract the value
-        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+        # # Extract the value
+        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
 
-        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
 
         dynamodb = boto3.resource('dynamodb',
                                   region_name=os.getenv('AWS_REGION'),
@@ -261,6 +257,8 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
     goals.sort(key=lambda goal: goal.get('priority', 1))  # Default priority 1 if not provided
     schedule = []
     current_month = 0  
+    # Store original extra savings before processing
+    original_ex_savings = ex_savings  
 
     for goal in goals:        
         if goal['goal'] == "Become Debt Free":
@@ -280,18 +278,26 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
             # Handle the returned recommendations
             payable_loans = debt_recommendations.get('payable_loans', [])
             final_months = debt_recommendations.get('final_months', 0)
-            ex_savings_used = debt_recommendations.get('ex_savings', 0)
+            # ex_savings_used = debt_recommendations.get('ex_savings', 0)
+            ex_savings_used = ex_savings - debt_recommendations.get('ex_savings', 0)
+            
             print("payable_loans")
             print(payable_loans)
             print("final_months")
-            print(final_months)
+            print(final_months) 
+            print("ex_savings_used")
+            print(ex_savings_used)
             
-            months_to_complete = final_months
+            months_to_complete = final_months+1
             time_available = 0
             ex_savings -= ex_savings_used
+            
+            print(f" Extra savings after debt payoff: {ex_savings}")
         else:                    
             # Retrieve goal details
             print("Retrieve goal details ")
+            print("goal name")
+            print(goal['goal'])
             amount_required = goal.get('amountRequired', 0)
             amount_allocated = goal.get('amountAllocated', 0)
             time_available = goal.get('timeAvailable', float('inf')) * 12  # Convert timeAvailable to months
@@ -305,6 +311,9 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
             # Use `ex_savings` to cover part of the remaining amount
             ex_savings_used = min(remaining_amount, ex_savings)
             
+            # Ensure extra savings is only used ONCE (i.e., prevent using extra savings after debt payoff)
+            # ex_savings_used = min(remaining_amount, max(0, original_ex_savings - ex_savings))
+            
             print("ex_savings_used")
             print(ex_savings_used)
             
@@ -314,12 +323,15 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
             print("remaining_amount")
             print(remaining_amount)
             
+            print("monthly_savings")
+            print(monthly_savings)
             
-            ex_savings -= ex_savings_used
+            if ex_savings > 0:
+                ex_savings -= ex_savings_used
 
             # Calculate months required to achieve this goal
             if monthly_savings > 0:
-                months_to_complete = (remaining_amount / monthly_savings)
+                months_to_complete = math.ceil(remaining_amount / monthly_savings)
             else:
                 months_to_complete = float('inf')
 
@@ -332,8 +344,7 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
         start_month = current_month + 1  # Start after the previous goal's completion
         completion_month = start_month + months_to_complete - 1
         
-        print("goal name")
-        print(goal['goal'])
+       
         
         print("months_to_complete")
         print(months_to_complete)
@@ -353,7 +364,7 @@ def sequential_scheduler(goals, monthly_savings, ex_savings):
                 "completion_month": completion_month,
                 "time_in_months": months_to_complete,
                 "priority": goal.get('priority', 1),
-                "ex_savings":ex_savings,
+                "ex_savings":ex_savings_used,
                 "TimeLimit":time_available,
                 })
             elif goal['goal'] == "Boost Emergency Fund":  
@@ -495,19 +506,36 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
         }
         for goal in goals
     ]
+    
+    print("ALL GOALS BEFORE FILTERING:")
+    for goal in remaining_goals:
+        print(goal["Name"], "Completed:", goal["Completed"], "Saved:", goal["Saved"], "Amount:", goal["Amount"])
+        print(remaining_goals)
 
     # Main scheduling loop
     while remaining_goals:
         # Identify active goals
+        # active_goals = [
+            # goal for goal in remaining_goals
+            # if not goal["Completed"] and (
+                # (goal["Name"] == "Become Debt Free") or 
+                # (goal["Saved"] < goal["Amount"] and goal["Time"] > 0)
+            # )
+        # ]
         active_goals = [
             goal for goal in remaining_goals
             if not goal["Completed"] and (
-                (goal["Name"] == "Become Debt Free") or 
-                (goal["Saved"] < goal["Amount"] and goal["Time"] > 0)
+                goal["Saved"] < goal["Amount"] or goal["Name"] == "Become Debt Free"
             )
         ]
         if not active_goals:
             break
+         
+        print("Active Goals Summary:")
+        for goal in active_goals:
+            total_allocated = sum(entry["Amount"] for entry in goal["AllocationHistory"])
+            print(f"Goal: {goal['Name']}, Total Allocated: {total_allocated}, Months Taken: {len(goal['AllocationHistory'])}")    
+        
 
         # Recompute total weight and allocations for monthly savings
         total_weight = sum(1 / goal["Priority"] for goal in active_goals if goal["Priority"] > 0)
@@ -526,10 +554,15 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
             extra_allocations = {goal["Name"]: 0 for goal in active_goals}
 
         # Reduce `ex_savings` by the allocated amounts
-        total_allocations = {}           
+        total_allocations = {}       
+
+        # print("active_goals")    
+        # print(active_goals)    
 
         # Allocate to each goal
         for goal in active_goals:
+            # print("GOAL IS")
+            # print(goal)
             monthly_allocation = monthly_allocations[goal["Name"]]
             extra_allocation = extra_allocations[goal["Name"]]
             total_allocations[goal["Name"]] = monthly_allocation + extra_allocation            
@@ -538,6 +571,7 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
 
             # Track allocation history and progress
             goal["Saved"] += total_allocation
+            
             # Add correct start and end dates to allocation history
             goal["AllocationHistory"].append({
                 "Name" : goal["Name"],
@@ -547,6 +581,7 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
                 "Duration": 1,  # Increment by 1 month
                 "StartDate": current_month,  # Track the current month
             })
+            
             # goal["AllocationHistory"].append({"Amount": total_allocation, "MonthlySlack": monthly_allocation, "ExtraSavings": extra_allocation, "Duration": 1})
             
             ex_savings -= extra_allocation  # Reduce extra savings as allocated
@@ -560,20 +595,32 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
                 months_to_complete = int(-(-months_to_complete // 1))
             else:
                 months_to_complete = float("inf")
-            print("goal Time")    
-            print(goal["Time"]) 
+            # print("goal Time")    
+            # print(goal["Time"]) 
             print("months_to_complete")    
             print(months_to_complete)    
+            
+            print("remaining_amount")
+            print(remaining_amount)
 
 
             # Handle specific goals
             if goal["Name"] == "Become Debt Free":
+                print("Inside Become Debt Free")
                 request_data = {
                     "data": goal["Data"],
                     "data1": goal["Data1"],
                     "debtData": goal["DebtData"],
                     "method": goal["Method"],
                 }
+                
+                
+                total_debt_amount = sum(float(debt["amount"]) for debt in goal["DebtData"])
+                remaining_amount = max(0, total_debt_amount - goal["Saved"])
+                
+                print('total_debt_amount ')
+                print(total_debt_amount)
+                
                 debt_recommendations = payOffDebtRecos_internal_par(
                     request_data, 
                     extra_allocations[goal["Name"]], 
@@ -581,11 +628,15 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
                 )
                 payable_loans = debt_recommendations.get("payable_loans", [])
                 final_months = debt_recommendations.get("final_months", 0)
+                
+                # print("final_months after reco")
+                # print(final_months)
 
                 if goal["CompletionMonths"] is None:
                     goal["CompletionMonths"] = final_months
 
-                if current_month >= goal["CompletionMonths"]:
+                # if current_month >= goal["CompletionMonths"]:
+                if goal["Saved"] >= total_debt_amount:
                     goal["Completed"] = True
                     schedule.append({
                         "process": "parallel",
@@ -634,7 +685,6 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
                         })
                     
                 else:
-                    print("Hello, ELSE please work!")
                     # If the goal can be completed within the time limit
                     if goal["Saved"] >= goal["Amount"]:
                         goal["Completed"] = True
@@ -660,7 +710,257 @@ def parallel_scheduler(goals, monthly_savings, ex_savings):
 
     return schedule
 
-def payOffDebtRecos_internal(data, slack, ex_savings):    
+
+
+def parallel_scheduler_bkp_recheck(goals, monthly_savings, ex_savings):
+    """
+    Prioritize and allocate monthly savings and extra savings to goals based on priority and time available.
+    """
+    # Sort goals by priority (lower priority number = higher priority)
+    goals = sorted(goals, key=lambda x: x.get("priority", float("inf")))
+
+    schedule = []
+    current_month = 0
+
+    # Initialize remaining goals
+    remaining_goals = [
+        {
+            "Name": goal.get("goal"),
+            "Amount": goal.get("amountRequired", 0),
+            "Time": goal.get("timeAvailable", float("inf")) * 12 if goal.get("goal") not in ["Boost Emergency Fund", "Become Debt Free"] else float("inf"),
+            "Priority": goal.get("priority", 1),
+            "Saved": goal.get("amountAllocated", 0),
+            "Data": goal.get("data", {}),
+            "Data1": goal.get("data1", {}),
+            "DebtData": goal.get("debtData", {}),
+            "Method": goal.get("method", ""),
+            "Completed": False,
+            "AllocationHistory": [],
+            "CompletionMonths": None,
+        }
+        for goal in goals
+    ]
+
+    # Main scheduling loop
+    while remaining_goals:
+        # Identify active goals
+        active_goals = [
+            goal for goal in remaining_goals
+            if not goal["Completed"] and (
+                (goal["Name"] == "Become Debt Free") or 
+                (goal["Saved"] < goal["Amount"] and goal["Time"] > 0)
+            )
+        ]
+        if not active_goals:
+            break
+
+        # Recompute total weight and allocations for monthly savings
+        total_weight = sum(1 / goal["Priority"] for goal in active_goals if goal["Priority"] > 0)
+        monthly_allocations = {
+            goal["Name"]: ((1 / goal["Priority"]) / total_weight) * monthly_savings
+            for goal in active_goals
+        }
+
+        # Recompute extra savings allocation if any extra savings remain
+        if ex_savings > 0 and total_weight > 0:
+            extra_allocations = {
+                goal["Name"]: ((1 / goal["Priority"]) / total_weight) * ex_savings
+                for goal in active_goals
+            }
+        else:
+            extra_allocations = {goal["Name"]: 0 for goal in active_goals}
+
+        # Reduce `ex_savings` by the allocated amounts
+        total_allocations = {}           
+
+        # Allocate to each goal
+        for goal in active_goals:
+            monthly_allocation = monthly_allocations[goal["Name"]]
+            extra_allocation = extra_allocations[goal["Name"]]
+            total_allocations[goal["Name"]] = monthly_allocation + extra_allocation            
+            remaining_amount = max(0, goal["Amount"] - goal["Saved"])
+            total_allocation = min(remaining_amount, total_allocations[goal["Name"]])
+
+            # Track allocation history and progress
+            goal["Saved"] += total_allocation
+            
+            
+            
+            if goal["Saved"] >= goal["Amount"]:
+               goal["Completed"] = True
+            
+            # Add correct start and end dates to allocation history
+            goal["AllocationHistory"].append({
+                "Name" : goal["Name"],
+                "Amount": total_allocation,
+                "MonthlySavings": monthly_allocations.get(goal["Name"], 0),
+                "ExtraSavings": extra_allocations.get(goal["Name"], 0),
+                "Duration": 1,  # Increment by 1 month
+                "StartDate": current_month,  # Track the current month
+            })
+            # goal["AllocationHistory"].append({"Amount": total_allocation, "MonthlySlack": monthly_allocation, "ExtraSavings": extra_allocation, "Duration": 1})
+            
+            if remaining_amount > 0:
+                ex_savings -= extra_allocation
+            if ex_savings < 0:
+                ex_savings = 0
+            
+            # Calculate months to complete with the current allocation
+            if total_allocation > 0:
+                months_to_complete = remaining_amount / total_allocation
+                # Round up to the nearest month as savings occur monthly
+                months_to_complete = int(-(-months_to_complete // 1))
+            else:
+                months_to_complete = float("inf")
+            print("goal Time")    
+            print(goal["Time"]) 
+            print("months_to_complete")    
+            print(months_to_complete)    
+
+
+            # Handle specific goals
+            if goal["Name"] == "Become Debt Free":
+                request_data = {
+                    "data": goal["Data"],
+                    "data1": goal["Data1"],
+                    "debtData": goal["DebtData"],
+                    "method": goal["Method"],
+                }
+                debt_recommendations = payOffDebtRecos_internal_par(
+                    request_data, 
+                    extra_allocations[goal["Name"]], 
+                    monthly_allocations[goal["Name"]]
+                )
+                payable_loans = debt_recommendations.get("payable_loans", [])
+                final_months = debt_recommendations.get("final_months", 0)
+
+                if goal["CompletionMonths"] is None:
+                    goal["CompletionMonths"] = final_months
+
+                if goal["Saved"] >= goal["Amount"]:
+                    goal["Completed"] = True
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Recos": payable_loans,
+                        "Slack": monthly_allocations[goal["Name"]],
+                        "ex_savings": extra_allocations[goal["Name"]],
+                        "Amount": goal["Amount"],
+                        "Priority": goal["Priority"],
+                        "Completion Month": current_month + 1,
+                        "AllocationHistory": goal["AllocationHistory"],
+                    })
+            elif goal["Name"] == "Boost Emergency Fund":
+                if goal["Saved"] >= goal["Amount"]:
+                    goal["Completed"] = True
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Amount": goal["Amount"],
+                        "Slack": monthly_allocations[goal["Name"]],
+                        "ex_savings": extra_allocations[goal["Name"]],
+                        "Priority": goal["Priority"],
+                        "Completion Month": current_month + 1,
+                        "AllocationHistory": goal["AllocationHistory"],
+                    })
+            else:                
+                # Check if the goal can be completed within the time limit
+                if goal["Saved"] >= goal["Amount"]:
+                    goal["Completed"] = True
+                elif months_to_complete > goal["Time"]:
+                    schedule.append({
+                        "process": "parallel",
+                        "Goal": goal["Name"],
+                        "Amount": goal["Amount"],
+                        "Saved": goal["Saved"],
+                        "Slack": monthly_allocations.get(goal["Name"], 0),
+                        "ex_savings": extra_allocations[goal["Name"]],
+                        "Priority": goal["Priority"],
+                        "Completion Month": current_month + months_to_complete,
+                        "TimeLimit": goal["Time"],
+                        "Message": "Goal cannot be completed within the time limit.",
+                        "AllocationHistory": goal["AllocationHistory"],
+                    })
+                    
+                else:
+                    # If the goal can be completed within the time limit
+                    if goal["Saved"] >= goal["Amount"]:
+                        goal["Completed"] = True
+                        goal["CompletionMonths"] = current_month + months_to_complete
+                        schedule.append({
+                            "process": "parallel",
+                            "Goal": goal["Name"],
+                            "Amount": goal["Amount"],
+                            "Slack": monthly_allocations.get(goal["Name"], 0),
+                            "ex_savings": extra_allocations[goal["Name"]],
+                            "Priority": goal["Priority"],
+                            "Completion Month": current_month + months_to_complete,
+                            "AllocationHistory": goal["AllocationHistory"],
+                            "TimeLimit": goal["Time"],
+                        })
+
+        # Remove completed goals
+        remaining_goals = [goal for goal in remaining_goals if not goal["Completed"]]
+        current_month += 1
+
+    # Sort the schedule by priority before returning
+    schedule = sorted(schedule, key=lambda x: x.get("Priority", float("inf")))
+
+    return schedule
+    
+    
+def payOffDebtRecos_internal_par(data, ex_savings, slack):    
+    formData = data.get('data', {})
+    form1Data = data.get('data1', {})
+    debtData = data.get('debtData', {})
+    methodType = data.get('method')
+    
+    method = "SB" if methodType == "Snowball" else "AV"
+
+    # Initialize output variables
+    payable_loans = []
+    remaining_ex_savings = ex_savings
+    final_months = 0  
+    total_amount_remaining = sum(float(loan['amount']) for loan in debtData)
+
+    # Create an entry for extra savings (if applicable)
+    if remaining_ex_savings > 0:
+        applied_ex_savings = min(total_amount_remaining, remaining_ex_savings)
+        total_amount_remaining -= applied_ex_savings
+        remaining_ex_savings -= applied_ex_savings
+        payable_loans.append({
+            "message": f"Extra savings of ₹{applied_ex_savings} used to pay debt.",
+            "amount": applied_ex_savings,
+            "months": 1
+        })
+
+    # Create a separate entry for monthly savings
+    if total_amount_remaining > 0:
+        if slack > 0:
+            months = int(-(-total_amount_remaining // slack))  # Round up correctly
+            final_months = months  # Only set final_months here, after extra savings
+            payable_loans.append({
+                "message": f"Remaining debt of ₹{total_amount_remaining} paid with slack in {months} months.",
+                "amount": total_amount_remaining,
+                "months": months
+            })
+        else:
+            payable_loans.append({
+                "message": "Debt cannot be paid off due to insufficient slack.",
+                "amount": total_amount_remaining,
+                "months": float("inf")
+            })
+            
+    print("final_months")        
+    print(final_months)        
+
+    return {
+        'payable_loans': payable_loans,
+        'final_months': final_months,
+        'remaining_ex_savings': remaining_ex_savings
+    }
+
+def payOffDebtRecos_internalMAhin(data, slack, ex_savings):    
     # print("Inside payOffDebtRecos_internal")
     formData = data.get('data', {})
     form1Data = data.get('data1', {})
@@ -894,7 +1194,7 @@ def parallel_scheduler245(goals, monthly_savings, extra_savings):
                     "method": goal["Method"],
                 }
                 
-                print(" "+ monthly_allocation)
+                print("Inside  "+ monthly_allocation)
 
                 # Get debt recommendations
                 debt_recommendations = payOffDebtRecos_internal_par(request_data, goal_extra_savings, monthly_allocation)
@@ -946,8 +1246,11 @@ def payOffDebtRecos_internal_par(data, ex_savings, slack):
     form1Data = data.get('data1', {})
     debtData = data.get('debtData', {})
     methodType = data.get('method')
+    print("methodType is "+ methodType)
     
     method = "SB" if methodType == "Snowball" else "AV"
+    
+    
 
     # Extract relevant fields
     M1 = float(formData.get('M1', 0) or 0)
@@ -968,6 +1271,7 @@ def payOffDebtRecos_internal_par(data, ex_savings, slack):
     
     # Debt repayment logic
     if method == "SB":  # Snowball method
+        print("Method is SB")
         debtData = sorted([loan for loan in debtData if float(loan['amount']) > 0], key=lambda x: float(x['amount']))
         for loan in debtData:
             loan_amount = float(loan['amount'])
@@ -985,8 +1289,11 @@ def payOffDebtRecos_internal_par(data, ex_savings, slack):
             # Calculate months required with slack for the remaining loan amount
             if loan_amount > 0:
                 total_amount_remaining += loan_amount
+                print("total_amount_remaining ")
+                print(total_amount_remaining)
                 if slack > 0:
-                    months = int(loan_amount / slack)
+                    # months = int(loan_amount / slack)
+                    months = int(total_amount_remaining / slack)
                     final_months += months
                     loans.append(f"Remaining {loan['name']} of {loan_amount} can be paid off with slack in {months} months.")
                 else:
@@ -1020,6 +1327,9 @@ def payOffDebtRecos_internal_par(data, ex_savings, slack):
     # Update final months if there are remaining amounts not covered by slack
     if total_amount_remaining > 0 and slack > 0:
         final_months += int(total_amount_remaining / slack)
+    
+    # print("final_months inside debt reco function")
+    # print(final_months)
     
     # Return debt payoff results and updated extra savings
     return {
@@ -1297,24 +1607,48 @@ def schedule_sequential123(goals, monthly_savings):
 def save_to_dynamo_schedule(request):
     if request.method == 'POST':
         try:
-            # Parse incoming request body
-            input_data = json.loads(request.body, parse_float=Decimal)
-            print("Received input_data:", input_data)
-
-            # Ensure input_data is a dictionary
-            if not isinstance(input_data, dict):
-                return JsonResponse({'error': 'Expected a dictionary of data objects'}, status=400)
+            # Parse request body
+            try:
+                data = json.loads(request.body, parse_float=Decimal)
+                print(f"Data received in save_to_dynamo_schedule:\n{json.dumps(data, indent=4)}")
+            except Exception as e:
+                print(f"Error parsing request body: {e}")
+                return JsonResponse({'error': f"Invalid JSON: {str(e)}"}, status=400)
 
             # Extract username and goals
-            user_name = input_data.get('username')
-            page = input_data.get('page', 'financial_schedule')
-            goals = input_data.get('goals', {})
-            
+            user_name = data.get('username')
+            page = data.get('page', 'financial_schedule')
+            goals = data.get('data', {}).get('goals', [])
+
             if not user_name or not goals:
                 return JsonResponse({'error': 'Username and goals are required'}, status=400)
 
+            # Get the environment variable
+            aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+            aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+            # Parse the JSON string
+            aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+            aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+            # Extract the value
+            aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+            aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+            
+                        
+            
+            # AWS credentials from environment variables
+            aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+            aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+            region_name = os.getenv('AWS_REGION')
+
             # Initialize DynamoDB resource
-            dynamodb = boto3.resource('dynamodb', region_name='us-west-2')
+            dynamodb = boto3.resource(
+                'dynamodb',
+                region_name=region_name,
+                aws_access_key_id=aws_access_key_id_e,
+                aws_secret_access_key=aws_secret_access_key_e
+            )
             table = dynamodb.Table('financial_schedule')
 
             # Check if an entry for the user already exists
@@ -1322,24 +1656,16 @@ def save_to_dynamo_schedule(request):
             existing_item = response.get('Item')
 
             if existing_item:
-                print("Updating existing entry for user:", user_name)
-
-                # Merge existing goals with new goals
-                existing_goals = existing_item.get('goals', {})
-                merged_goals = {**existing_goals, **goals}
-
-                # Update the DynamoDB entry
+                # Replace existing goals with new goals
                 table.update_item(
                     Key={'user_name': user_name},
                     UpdateExpression="SET goals = :goals, updated_at = :updated_at",
                     ExpressionAttributeValues={
-                        ':goals': merged_goals,
+                        ':goals': goals,  # Directly replace goals
                         ':updated_at': datetime.now().isoformat(),
                     }
                 )
             else:
-                print("Creating new entry for user:", user_name)
-
                 # Create a new entry
                 item = {
                     'user_name': user_name,
@@ -1350,7 +1676,7 @@ def save_to_dynamo_schedule(request):
                 }
                 table.put_item(Item=item)
 
-            return JsonResponse({'message': 'Data saved successfully'})
+            return JsonResponse({'message': 'Schedule Data saved successfully'})
 
         except Exception as e:
             print("Error:", str(e))
@@ -1361,31 +1687,31 @@ def save_to_dynamo_schedule(request):
 @csrf_exempt
 def save_to_dynamo(request):
     if request.method == 'POST':
-        print("Inside save_to_dynamo")
+        # print("Inside save_to_dynamo")
         # if not request.user.is_authenticated:
         #     return JsonResponse({'error': 'User not authenticated'}, status=401)
         
         try:
             # Parse request body
             data = json.loads(request.body , parse_float=Decimal)
-            print(f"Data received: {data}")
+            # print(f"Data received: {data}")
         except Exception as e:
             print(f"Error parsing request body: {e}")
             return JsonResponse({'error': f"Invalid JSON: {str(e)}"}, status=400)
         
         # Extract variables
-        input_data = data.get('inputData', {})
+        input_data = data.get('input_data', {})
         emis = data.get('emis', [])
         checkingAccounts = data.get('checkingAccounts', [])
         request_from = data.get('page', 'Unknown')
-        print(f"Request from: {request_from}")
-        print("input_data")
-        print(input_data)
+        # print(f"Request from: {request_from}")
+        # print("input_data")
+        # print(input_data)
         
         
         
         
-        #Get the environment variable
+        # Get the environment variable
         aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
         aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
@@ -1407,9 +1733,9 @@ def save_to_dynamo(request):
         # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
         region_name = os.getenv('AWS_REGION')
         
-        print("before initializing")
-        print("request_from ")
-        print(request_from)
+        # print("before initializing")
+        # print("request_from ")
+        # print(request_from)
         # Initialize DynamoDB resource
         dynamodb = boto3.resource('dynamodb',
                                   region_name=region_name,
@@ -1442,13 +1768,19 @@ def save_to_dynamo(request):
             
             
         if request_from == "fin_flow":
-            print("inside request_from fin_flow")
+            # print("inside request_from fin_flow")
             table = dynamodb.Table('financial_flow')
 
             # Extract and validate required fields
             user_name = data.get('username')
             month_year = data.get('month_year')  # e.g., "January 2025"
             input_data = data.get('input_data')
+            
+            # Remove any keys with empty string or invalid keys from the input_data
+            input_data = {k: v for k, v in input_data.items() if k}
+            
+            # print("input_data is ")
+            # print(input_data)
 
             if not user_name or not month_year or input_data is None:
                 return JsonResponse({'error': 'Missing required fields'}, status=400)
@@ -1457,7 +1789,7 @@ def save_to_dynamo(request):
                 existing_item = table.get_item(Key={'user_name': user_name, 'month_year': month_year}).get('Item')
 
                 if existing_item:
-                    print("inside existing item fin_flow")
+                    # print("inside existing item fin_flow")
                     # Update the existing item with new values from data
                     for key, value in data.items():
                         if key not in ['user_name', 'created_date', 'month_year']:  # Ensure 'month_year' is excluded
@@ -1478,7 +1810,7 @@ def save_to_dynamo(request):
                     if update_expression:
                         update_expression_str = 'set ' + ', '.join(update_expression)
 
-                        print("update_expression_str is " + update_expression_str)
+                        # print("update_expression_str is " + update_expression_str)
 
                         table.update_item(
                             Key={'user_name': data['user_name'], 'month_year': month_year},  # Do not change 'month_year'
@@ -1512,8 +1844,6 @@ def save_to_dynamo(request):
             existing_item = table.get_item(Key={'user_name': data['user_name']}).get('Item')
 
             if existing_item:
-                print("inside existing item")
-                print(data)
                 # Update the existing item with new values from data
                 for key, value in data.items():
                     if key not in ['user_name', 'created_date']:
@@ -1534,7 +1864,6 @@ def save_to_dynamo(request):
                 if update_expression:
                     update_expression_str = 'set ' + ', '.join(update_expression)
                     
-                    print("update_expression_str is "+update_expression_str)
 
                     table.update_item(
                         Key={'user_name': data['user_name']},
@@ -1600,6 +1929,238 @@ def save_to_dynamo(request):
         return JsonResponse({'message': 'Data saved successfully', 'response': response})
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+
+# Function to calculate the summary to be displayed in the Financial Flow page
+@csrf_exempt
+def summary_finflow(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        user_name = data['username']
+
+        if not user_name:
+            return JsonResponse({'error': 'User name is required'}, status=400)
+            
+        #Get the environment variable
+        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        # # Parse the JSON string
+        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+        # # Extract the value
+        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+
+        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        print("inside request_from FHC") 
+
+        dynamodb = boto3.resource('dynamodb',
+                                  region_name=os.getenv('AWS_REGION'),
+                                  aws_access_key_id=aws_access_key_id_e,
+                                  aws_secret_access_key=aws_secret_access_key_e)
+        table = dynamodb.Table('financial_flow')
+
+        # Fetch `month_year` from the request data
+        month_year = data.get('month_year')
+        if not month_year:
+            return JsonResponse({'error': 'month_year is required for fin_flow'}, status=400)
+            
+        # Query the table using `user_name` to get all previous months' records and current month data
+        response = table.query(
+            KeyConditionExpression=Key('user_name').eq(user_name)& Key('month_year').lte(month_year),
+            ScanIndexForward=True  # Sort by month_year ascending (to get previous months first)
+        )
+        
+        data_retrieved = table.get_item(Key={"user_name": user_name, "month_year": month_year})
+        
+        if "Item" not in data_retrieved:
+            return JsonResponse({"error": "No data found"}, status=404)
+
+        
+        item = data_retrieved["Item"]
+        print("item ")
+        print(item)
+
+        # Extract EndingBalance data
+        ending_balance_data = item.get("EndingBalance", {}).get("M", {})
+        
+        print("ending_balance_data ")
+        print(ending_balance_data)
+        
+        if not ending_balance_data:
+            return JsonResponse({"error": "No ending balance found"}, status=404)
+            
+        # Get the last week's balance
+        final_week = max(ending_balance_data.keys(), key=lambda k: int(k.split()[-1]))  # Extract max week number
+        final_week_balance = ending_balance_data[final_week].get("N") or ending_balance_data[final_week].get("S")
+        
+
+
+        # Initialize summary variables
+        total_income = total_expenses = total_savings = 0
+        cumulative_income = cumulative_expenses = cumulative_savings = 0
+
+        records = response.get('Items', [])
+
+        # Loop through each record to calculate the totals
+        for record in records:
+            print("Processing record:")
+            print(record)
+
+            # Calculate Total Income
+            input_data = record.get('input_data', {})
+            
+            print("input_data is ")
+            print(input_data)
+            
+            paycheck_data = input_data.get('Income', {}).get('Paycheck', {})
+            
+            print("paycheck_data")
+            print(paycheck_data)
+            total_income = sum(float(amount) for amount in paycheck_data.values() if amount.strip())
+
+            # Calculate Total Expenses
+            total_expenses = 0
+            expenses_data = input_data.get('Spending Expenses', {})
+            bills_data = input_data.get('Bills', {})
+            non_monthly_expenses_data = input_data.get('Non Monthly Expenses', {})
+            
+            print("expenses_data")
+            print(expenses_data)
+            
+            print("bills_data")
+            print(bills_data)
+            
+            print("non_monthly_expenses_data")
+            print(non_monthly_expenses_data)
+
+            # Sum the expenses from the correct sub-sections
+            for data_section in [expenses_data, bills_data, non_monthly_expenses_data]:
+                for key, amount in data_section.items():
+                    print("key, amount")
+                    print(key)
+                    print(amount)
+
+                    # Check if 'amount' is a dictionary (like {'Week 1': '1000'})
+                    if isinstance(amount, dict):
+                        # Iterate through the dictionary and process each value
+                        for sub_key, sub_amount in amount.items():
+                            try:
+                                if isinstance(sub_amount, str) and sub_amount.strip():  # If it's a non-empty string
+                                    print("sub_amount is ")
+                                    print(sub_amount)
+                                    total_expenses += float(sub_amount)
+                                elif isinstance(sub_amount, (int, float)):  # If it's already numeric
+                                    print("sub_amount is numeric")
+                                    print(sub_amount)
+                                    total_expenses += sub_amount
+                            except ValueError:
+                                print(f"Skipping invalid sub-amount: {sub_amount}")
+                    
+                    # If 'amount' is already a numeric value, just add it
+                    elif isinstance(amount, (int, float)):  
+                        print("amount is numeric")
+                        print(amount)
+                        total_expenses += amount
+                    
+                    # If 'amount' is a string (non-empty), process it
+                    elif isinstance(amount, str) and amount.strip():
+                        print("amount is string")
+                        print(amount)
+                        total_expenses += float(amount)
+
+                    print("total_expenses")
+                    print(total_expenses)
+
+            # Calculate Total Savings (based on 'Goals' section)
+            total_savings = 0
+            goals_data = input_data.get('Goals', {})
+            
+            print("goals_data")
+            print(goals_data)
+
+            # Check if goals_data is a dictionary or list
+            if isinstance(goals_data, dict):
+                # If it's a dictionary, iterate through it
+                for goal, weeks in goals_data.items():
+                    for week, amount in weeks.items():
+                        try:
+                            if isinstance(amount, str) and amount.strip():
+                                total_savings += float(amount)
+                            elif isinstance(amount, (int, float)):  # If amount is already numeric
+                                total_savings += amount
+                        except ValueError:
+                            print(f"Skipping invalid goal amount: {amount}")
+            elif isinstance(goals_data, list):
+                # If it's a list, iterate through the elements (assuming the structure of list)
+                for item in goals_data:
+                    # If the list items themselves contain the amount data in a particular structure,
+                    # adjust here accordingly. Below is just an example.
+                    for week_data in item.get('weeks', []):  # Assuming each item has a 'weeks' field
+                        try:
+                            amount = week_data.get('amount', 0)
+                            if isinstance(amount, str) and amount.strip():
+                                total_savings += float(amount)
+                            elif isinstance(amount, (int, float)):  # If amount is already numeric
+                                total_savings += amount
+                        except ValueError:
+                            print(f"Skipping invalid goal amount: {amount}")
+            else:
+                print("Unexpected structure for 'Goals'. It should be either a dictionary or a list.")
+
+            # Cumulative Totals (Adding previous month's totals to current month totals)
+            cumulative_income += total_income
+            cumulative_expenses += total_expenses
+            cumulative_savings += total_savings
+            
+            #Calculation of Total Ratios
+            
+            exp_ratio_total = total_expenses/total_income
+            savings_ratio_total = total_savings/total_income
+            slack_ratio_total = final_week_balance/total_income
+            exp_ratio_cumu = cumulative_expenses/cumulative_income
+            savings_ratio_cumu = cumulative_expenses/cumulative_income
+            slack_ratio_cumu = final_week_balance/cumulative_income
+
+
+            # Add data for the current record's month_year
+            print(f"Month Year: {record['month_year']}")
+            print(f"Total Income: {total_income}")
+            print(f"Total Expenses: {total_expenses}")
+            print(f"Total Savings: {total_savings}")
+            print(f"Cumulative Income: {cumulative_income}")
+            print(f"Cumulative Expenses: {cumulative_expenses}")
+            print(f"Cumulative Savings: {cumulative_savings}")
+
+        # Return the summarized result
+        summary = {
+            'totalIncome': total_income,
+            'totalExpenses': total_expenses,
+            'totalSavings': total_savings,
+            'cumulativeIncome': cumulative_income,
+            'cumulativeExpenses': cumulative_expenses,
+            'cumulativeSavings': cumulative_savings,
+            'totalExpenseRatio': exp_ratio_total,
+            'totalSavingsRatio': savings_ratio_total,
+            'totalSlackRatio': slack_ratio_total,
+            'cumulativeExpenseRatio': exp_ratio_cumu,
+            'cumulativeSavingsRatio': savings_ratio_cumu,
+            'cumulativeSlackRatio': slack_ratio_cumu,
+            
+        }
+
+        return JsonResponse(summary)
+
+        # if 'Item' in response:
+            # return JsonResponse(response['Item'])
+        # else:
+            # return JsonResponse({'error': 'User not found'}, status=404)
+    else:
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
 
 
 
