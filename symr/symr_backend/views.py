@@ -72,19 +72,19 @@ def fetch_data(request):
             return JsonResponse({'error': 'User name is required'}, status=400)
             
         #Get the environment variable
-        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # # Parse the JSON string
-        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # Parse the JSON string
+        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # # Extract the value
-        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+        # Extract the value
+        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
 
-        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
 
         dynamodb = boto3.resource('dynamodb',
                                   region_name=os.getenv('AWS_REGION'),
@@ -147,19 +147,19 @@ def fetch_data_from_dynamodb(table_name, user_id):
     try:
         # Initialize the DynamoDB client
           #Get the environment variable
-        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # # Parse the JSON string
-        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # Parse the JSON string
+        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # # Extract the value
-        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+        # Extract the value
+        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
 
-        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
 
         dynamodb = boto3.resource('dynamodb',
                                   region_name=os.getenv('AWS_REGION'),
@@ -1638,8 +1638,8 @@ def save_to_dynamo_schedule(request):
                         
             
             # AWS credentials from environment variables
-            aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-            aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+            # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+            # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
             region_name = os.getenv('AWS_REGION')
 
             # Initialize DynamoDB resource
@@ -1942,19 +1942,19 @@ def summary_finflow(request):
             return JsonResponse({'error': 'User name is required'}, status=400)
             
         #Get the environment variable
-        # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
-        # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+        aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
-        # # Parse the JSON string
-        # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
-        # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+        # Parse the JSON string
+        aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+        aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
 
-        # # Extract the value
-        # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+        # Extract the value
+        aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
 
-        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+        # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
         print("inside request_from FHC") 
 
         dynamodb = boto3.resource('dynamodb',
