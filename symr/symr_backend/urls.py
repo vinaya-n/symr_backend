@@ -29,6 +29,7 @@ urlpatterns = [
     path("api/schedule-sequential/", views.schedule_sequential, name="schedule_sequential"),
     path("api/schedule-parallel/", views.schedule_parallel, name="schedule_parallel"),
     # path("api/fetch-schedule/", views.fetch_schedule_data, name="fetch_schedule_data"),
-    path("api/fin-flow/get-summary/", views.summary_finflow, name="summary_finflow"),
+    path("api/get_summary/", views.summary_finflow, name="summary_finflow"),
+    path("api/fetch_fin_schedule/", views.fetch_financial_schedule, name="fetch_financial_schedule"),
     
 ]

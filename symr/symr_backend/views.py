@@ -46,6 +46,9 @@ from django.utils import timezone
 # import datetime
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key  # Add this import
+import traceback
+from dateutil.relativedelta import relativedelta
+
 
 # Set up logging
 # logging.basicConfig(
@@ -142,6 +145,238 @@ def fetch_data(request):
             return JsonResponse({'error': 'User not found'}, status=404)
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+
+@csrf_exempt
+def fetch_financial_schedule(request): 
+    if request.method == "POST":
+        try:
+            print("Inside fetch_financial_schedule")
+            data = json.loads(request.body)
+            user_name = data.get("username")
+            month_year = data.get("month_year")  # Active tab (Month-Year)
+            print("data:", data)
+
+            if not user_name or not month_year:
+                return JsonResponse({"error": "Username and month_year are required"}, status=400)
+
+            # ✅ Convert the active month to datetime
+            target_date = datetime.strptime(month_year, "%B %Y")
+            
+            #Get the environment variable
+            aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+            aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+            # Parse the JSON string
+            aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+            aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+            # Extract the value
+            aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+            aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+
+            # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+            # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+            # ✅ Initialize DynamoDB
+            dynamodb = boto3.resource(
+                'dynamodb',
+                region_name=os.getenv('AWS_REGION'),
+                aws_access_key_id=aws_access_key_id_e,
+                aws_secret_access_key=aws_secret_access_key_e
+            )
+
+            # ✅ Fetch amountRequired from financial_goal_progress
+            goal_progress_table = dynamodb.Table('financial_goals_progess')
+            goal_progress_response = goal_progress_table.get_item(Key={'user_name': user_name})
+
+            goal_progress_data = goal_progress_response.get("Item", {})
+            print("Goal Progress Data:", goal_progress_data)
+
+            # ✅ Fetch financial schedule (from financial_schedule)
+            schedule_table = dynamodb.Table('financial_schedule')
+            schedule_response = schedule_table.get_item(Key={'user_name': user_name})
+
+            if "Item" not in schedule_response or not schedule_response["Item"]:
+                return JsonResponse({"message": "No schedule data found for user"}, status=404)
+
+            financial_data = schedule_response["Item"]
+            print("Full financial_data:", financial_data)
+
+            # ✅ Extract applicable goals for the given month
+            applicable_goals = []
+            
+            for goal in financial_data.get("goals", []):
+                start_date = datetime.strptime(goal["startMonthYear"], "%B %Y")
+                end_date = datetime.strptime(goal["completionMonthYear"], "%B %Y")
+
+                # ✅ Check if the goal is applicable for the given month_year
+                if start_date <= target_date <= end_date:
+                    monthly_savings = int(goal["monthlySavings"])
+                    applicable_goals.append({
+                        "goal": goal["goal"],
+                        "amount": monthly_savings
+                    })
+            print("applicable_goals:", applicable_goals)
+
+            # ✅ Now, calculate cumulative savings & goal progress from financial_schedule
+            updated_goals = []
+            seen_goals = set()  # ✅ Set to track unique goal names
+
+            for goal in financial_data.get("goals", []):
+                if not isinstance(goal, dict) or "goal" not in goal:
+                    continue  # Skip invalid goals
+
+                goal_name = goal["goal"]
+                
+                if goal_name in seen_goals:
+                    continue  # ✅ Skip if the goal has already been added
+
+                seen_goals.add(goal_name)  # ✅ Mark goal as added
+    
+                initial_allocated = int(goal.get("exSavings", 0))  # Initial savings (if available)
+                time_available = int(goal["timeAvailable"]) if "timeAvailable" in goal else 0
+
+                # ✅ Fetch amountRequired from financial_goal_progress
+                amount_required = 0
+                for progress_goal in goal_progress_data.values():
+                    if isinstance(progress_goal, dict) and progress_goal.get("title") == goal_name:
+                        amount_required = int(progress_goal.get("amountRequired", 0))
+                        initial_allocated = int(progress_goal.get("allocatedAmount", 0))
+                        break  # Stop searching once found
+
+                # ✅ Default cumulative savings to initial savings
+                cumulative_savings = initial_allocated
+
+                # ✅ Find the total savings allocated up to `target_date`
+                start_date = datetime.strptime(goal["startMonthYear"], "%B %Y")
+                end_date = datetime.strptime(goal["completionMonthYear"], "%B %Y")
+                monthly_savings = int(goal["monthlySavings"])
+
+                # ✅ Calculate cumulative savings till the current month
+                temp_date = start_date
+                while temp_date <= target_date and temp_date <= end_date:
+                    cumulative_savings += monthly_savings
+                    temp_date += relativedelta(months=1)  # Move to next month
+
+                # ✅ Calculate Goal Progress Percentage
+                goal_progress = round(((cumulative_savings / amount_required) * 100), 2) if amount_required > 0 else 0
+
+                # ✅ Append goal data to response
+                updated_goals.append({
+                    "goalName": goal_name,
+                    "amountRequired": amount_required,  # Fetched from financial_goal_progress
+                    "allocatedAmountInitial": initial_allocated,
+                    "allocatedAmountNow": cumulative_savings,  # Cumulative savings till this month
+                    "goalProgress": goal_progress
+                })
+
+            print("Final Goals Summary:", updated_goals)
+
+            # ✅ Return the existing response with extra fields
+            return JsonResponse({
+                "status": "success",
+                "user_name": user_name,
+                "month_year": month_year,
+                "goals": applicable_goals,
+                "updatedGoals": updated_goals
+            }, safe=False)
+
+        except Exception as e:
+            print("ERROR in fetch-financial-schedule:", str(e))
+            print(traceback.format_exc())  # Print full traceback
+            return JsonResponse({"error": str(e)}, status=500)
+
+    else:
+        return JsonResponse({"error": "Invalid request method"}, status=405)
+
+
+
+def fetch_financial_schedule_BKP_Working(request):
+    if request.method == "POST":
+        try:
+            print("Inside fetch_financial_schedule")
+            data = json.loads(request.body)
+            user_name = data.get("username")
+            month_year = data.get("month_year")  # Month-Year to filter data
+            print("data")
+            print(data)
+            
+            if not user_name or not month_year:
+                return JsonResponse({"error": "Username and month_year are required"}, status=400)
+                    
+            #Get the environment variable
+            # aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
+            # aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+            # # Parse the JSON string
+            # aws_access_key_id_dict = json.loads(aws_access_key_id_json)
+            # aws_secret_access_key_dict = json.loads(aws_secret_access_key_json)
+
+            # # Extract the value
+            # aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
+            # aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+
+            aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+            aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+            
+            dynamodb = boto3.resource('dynamodb',
+                                          region_name=os.getenv('AWS_REGION'),
+                                          aws_access_key_id=aws_access_key_id_e,
+                                          aws_secret_access_key=aws_secret_access_key_e) 
+            
+            # Convert the given month_year to datetime for comparison
+            target_date = datetime.strptime(month_year, "%B %Y")
+
+            table = dynamodb.Table('financial_schedule')
+
+            # Query the financial_schedule table
+            response = table.get_item(Key={'user_name': user_name})
+            
+            print("response")
+            print()
+            
+            if "Item" not in response or not response["Item"]:
+                    return JsonResponse({"message": "No data found for user"}, status=404)
+            
+            financial_data = response["Item"]
+            applicable_goals = []
+            print("financial_data")
+            print(financial_data) 
+            print("Full financial_data:", financial_data)
+            print("Type of financial_data:", type(financial_data))
+            for goal in financial_data.get("goals", []):  # ✅ Directly access goals
+                start_date = datetime.strptime(goal["startMonthYear"], "%B %Y")
+                end_date = datetime.strptime(goal["completionMonthYear"], "%B %Y")
+
+                # Check if the goal is applicable for the given month_year
+                if start_date <= target_date <= end_date:
+                    monthly_savings = int(goal["monthlySavings"])
+                    ex_savings = int(goal["exSavings"]) if start_date == target_date else 0
+
+                    applicable_goals.append({
+                        "goal": goal["goal"],
+                        "amount": monthly_savings
+                    })
+            print("applicable_goals")                
+            print(applicable_goals) 
+            return JsonResponse({
+                    "status": "success",
+                    "user_name": user_name,
+                    "month_year": month_year,
+                    "goals": applicable_goals
+                }, safe=False)  
+        except Exception as e:
+            print("ERROR in fetch-fin-schedule:", str(e))
+            print(traceback.format_exc())  # Print full traceback to identify the issue
+            return JsonResponse({"error": str(e)}, status=500)        
+        
+    else:    
+        return JsonResponse({"error": "Invalid request method"}, status=405)
+
+
+
+
 
 def fetch_data_from_dynamodb(table_name, user_id):
     try:
@@ -1763,13 +1998,60 @@ def save_to_dynamo(request):
             checkingAccounts_table = dynamodb.Table('financial_reboot_acc')  # Separate table for checkingAccounts entries
         if request_from == "fin_plan":
             table = dynamodb.Table('financial_planning')        
+            table_goals = dynamodb.Table('financial_goals_progess')        
         if request_from == "fin_schedule":
             table = dynamodb.Table('financial_schedule')        
-            
-            
+        
+        if request_from == "fin_plan":            
+            # Check if the record exists
+            print("Inside second table")
+            response = table_goals.get_item(
+                Key={
+                    'user_name': data['user_name']
+                }
+            )
+            existing_item = table_goals.get_item(Key={'user_name': data['user_name']}).get('Item')
+
+            if existing_item:
+                # Update the existing item with new values from data
+                for key, value in data.items():
+                    if key not in ['user_name', 'created_date']:
+                        existing_item[key] = value
+                
+                # Construct the update expression
+                update_expression = []
+                expression_attribute_names = {}
+                expression_attribute_values = {}
+
+                for key, value in existing_item.items():
+                    if key not in ['user_name', 'created_date']:
+                        placeholder_name = f'#{key}'
+                        update_expression.append(f'{placeholder_name} = :{key}')
+                        expression_attribute_names[placeholder_name] = key
+                        expression_attribute_values[f':{key}'] = value
+
+                if update_expression:
+                    update_expression_str = 'set ' + ', '.join(update_expression)
+                    
+
+                    table_goals.update_item(
+                        Key={'user_name': data['user_name']},
+                        UpdateExpression=update_expression_str,
+                        ExpressionAttributeNames=expression_attribute_names,
+                        ExpressionAttributeValues=expression_attribute_values
+                    )
+
+            else:
+                # Insert logic (unchanged)
+                data['created_at'] = datetime.now().isoformat()
+                table_goals.put_item(Item=data)
+                
         if request_from == "fin_flow":
             # print("inside request_from fin_flow")
             table = dynamodb.Table('financial_flow')
+            
+            print("data")
+            print(data)
 
             # Extract and validate required fields
             user_name = data.get('username')
@@ -1779,9 +2061,22 @@ def save_to_dynamo(request):
             # Remove any keys with empty string or invalid keys from the input_data
             input_data = {k: v for k, v in input_data.items() if k}
             
-            # print("input_data is ")
-            # print(input_data)
+            print("input_data SAVE TO DYNAMO FIN FLOW is ")
+            print(input_data)
 
+            
+            # ✅ Merge dynamic sections
+            # spending_expenses = data.get("Spending Expenses", {})
+            # bills = data.get("Bills", {})
+            # non_monthly_expenses = input_data.get("Non Monthly Expenses", {})
+            
+            # input_data.update({
+                # "Spending Expenses": spending_expenses,
+                # "Bills": bills,
+                # "Non Monthly Expenses": non_monthly_expenses
+            # })
+            
+           
             if not user_name or not month_year or input_data is None:
                 return JsonResponse({'error': 'Missing required fields'}, status=400)
 
@@ -1931,17 +2226,18 @@ def save_to_dynamo(request):
         return JsonResponse({'error': 'Invalid request method'}, status=400)
 
 
-# Function to calculate the summary to be displayed in the Financial Flow page
 @csrf_exempt
 def summary_finflow(request):
     if request.method == 'POST':
         data = json.loads(request.body)
-        user_name = data['username']
+        user_name = data.get("username")
+        month_year = data.get("month_year")
+        updated_spent_values = data.get("spentValues", {})
 
-        if not user_name:
-            return JsonResponse({'error': 'User name is required'}, status=400)
+        if not user_name or not month_year:
+            return JsonResponse({'error': 'Username and month_year are required'}, status=400)
             
-        #Get the environment variable
+        # Get the environment variable
         aws_access_key_id_json = os.getenv('AWS_ACCESS_KEY_ID')
         aws_secret_access_key_json = os.getenv('AWS_SECRET_ACCESS_KEY')
 
@@ -1951,11 +2247,16 @@ def summary_finflow(request):
 
         # Extract the value
         aws_access_key_id_e = aws_access_key_id_dict['AWS_ACCESS_KEY_ID']
-        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']    
+        aws_secret_access_key_e = aws_secret_access_key_dict['AWS_SECRET_ACCESS_KEY']
+        
+                    
+        
+        # AWS credentials from environment variables
+       
+        region_name = os.getenv('AWS_REGION')    
 
         # aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
         # aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
-        print("inside request_from FHC") 
 
         dynamodb = boto3.resource('dynamodb',
                                   region_name=os.getenv('AWS_REGION'),
@@ -1963,204 +2264,232 @@ def summary_finflow(request):
                                   aws_secret_access_key=aws_secret_access_key_e)
         table = dynamodb.Table('financial_flow')
 
-        # Fetch `month_year` from the request data
-        month_year = data.get('month_year')
-        if not month_year:
-            return JsonResponse({'error': 'month_year is required for fin_flow'}, status=400)
-            
-        # Query the table using `user_name` to get all previous months' records and current month data
+        # ✅ Fetch all past data up to the active month
         response = table.query(
-            KeyConditionExpression=Key('user_name').eq(user_name)& Key('month_year').lte(month_year),
-            ScanIndexForward=True  # Sort by month_year ascending (to get previous months first)
+            KeyConditionExpression=Key("user_name").eq(user_name) & Key("month_year").lte(month_year),
+            ScanIndexForward=True  # Ensures data is sorted by month
         )
-        
-        data_retrieved = table.get_item(Key={"user_name": user_name, "month_year": month_year})
-        
-        if "Item" not in data_retrieved:
-            return JsonResponse({"error": "No data found"}, status=404)
 
-        
-        item = data_retrieved["Item"]
-        print("item ")
-        print(item)
+        records = response.get("Items", [])
 
-        # Extract EndingBalance data
-        ending_balance_data = item.get("EndingBalance", {}).get("M", {})
-        
-        print("ending_balance_data ")
-        print(ending_balance_data)
-        
-        if not ending_balance_data:
-            return JsonResponse({"error": "No ending balance found"}, status=404)
-            
-        # Get the last week's balance
-        final_week = max(ending_balance_data.keys(), key=lambda k: int(k.split()[-1]))  # Extract max week number
-        final_week_balance = ending_balance_data[final_week].get("N") or ending_balance_data[final_week].get("S")
-        
+        # ✅ Initialize cumulative totals
+        cumulative_income = 0
+        cumulative_expenses = 0
+        cumulative_savings = 0
+        prev_ending_balance = 0  
+        yearly_savings = {}
+        spent_values = {}  
 
-
-        # Initialize summary variables
-        total_income = total_expenses = total_savings = 0
-        cumulative_income = cumulative_expenses = cumulative_savings = 0
-
-        records = response.get('Items', [])
-
-        # Loop through each record to calculate the totals
+        # ✅ Process all months up to active month
         for record in records:
-            print("Processing record:")
-            print(record)
+            input_data = record.get("input_data", {})
 
-            # Calculate Total Income
-            input_data = record.get('input_data', {})
-            
-            print("input_data is ")
-            print(input_data)
-            
-            paycheck_data = input_data.get('Income', {}).get('Paycheck', {})
-            
-            print("paycheck_data")
-            print(paycheck_data)
-            total_income = sum(float(amount) for amount in paycheck_data.values() if amount.strip())
+            # ✅ Extract & accumulate spent values
+            existing_spent = input_data.get("Non Monthly Expenses Spent", {})
+            for category, amount in existing_spent.items():
+                spent_values[category] = spent_values.get(category, 0) + int(amount)
 
-            # Calculate Total Expenses
-            total_expenses = 0
-            expenses_data = input_data.get('Spending Expenses', {})
-            bills_data = input_data.get('Bills', {})
-            non_monthly_expenses_data = input_data.get('Non Monthly Expenses', {})
-            
-            print("expenses_data")
-            print(expenses_data)
-            
-            print("bills_data")
-            print(bills_data)
-            
-            print("non_monthly_expenses_data")
-            print(non_monthly_expenses_data)
+            # ✅ Calculate income, expenses, and savings
+            month_income = sum(float(amount) for amount in input_data.get("Income", {}).get("Paycheck", {}).values() if amount.strip())
+            month_expenses = sum(float(amount) for section in ["Spending Expenses", "Bills", "Non Monthly Expenses"]
+                                 for field in input_data.get(section, {}).values()
+                                 for amount in field.values() if isinstance(amount, str) and amount.strip())
+            month_savings = sum(float(amount) for goal_data in input_data.get("Goals", {}).values()
+                                for amount in goal_data.values() if isinstance(amount, str) and amount.strip())
 
-            # Sum the expenses from the correct sub-sections
-            for data_section in [expenses_data, bills_data, non_monthly_expenses_data]:
-                for key, amount in data_section.items():
-                    print("key, amount")
-                    print(key)
-                    print(amount)
+            # ✅ Update cumulative totals
+            cumulative_income += month_income
+            cumulative_expenses += month_expenses
+            cumulative_savings += month_savings
 
-                    # Check if 'amount' is a dictionary (like {'Week 1': '1000'})
-                    if isinstance(amount, dict):
-                        # Iterate through the dictionary and process each value
-                        for sub_key, sub_amount in amount.items():
-                            try:
-                                if isinstance(sub_amount, str) and sub_amount.strip():  # If it's a non-empty string
-                                    print("sub_amount is ")
-                                    print(sub_amount)
-                                    total_expenses += float(sub_amount)
-                                elif isinstance(sub_amount, (int, float)):  # If it's already numeric
-                                    print("sub_amount is numeric")
-                                    print(sub_amount)
-                                    total_expenses += sub_amount
-                            except ValueError:
-                                print(f"Skipping invalid sub-amount: {sub_amount}")
-                    
-                    # If 'amount' is already a numeric value, just add it
-                    elif isinstance(amount, (int, float)):  
-                        print("amount is numeric")
-                        print(amount)
-                        total_expenses += amount
-                    
-                    # If 'amount' is a string (non-empty), process it
-                    elif isinstance(amount, str) and amount.strip():
-                        print("amount is string")
-                        print(amount)
-                        total_expenses += float(amount)
+            # ✅ Extract previous month's ending balance
+            ending_balance_data = input_data.get("EndingBalance", {})
+            if ending_balance_data:
+                try:
+                    final_week = max(ending_balance_data.keys(), key=lambda k: int(k.split()[-1]))
+                    prev_ending_balance = float(ending_balance_data[final_week]) if isinstance(ending_balance_data[final_week], str) else 0
+                except ValueError:
+                    prev_ending_balance = 0  
 
-                    print("total_expenses")
-                    print(total_expenses)
+            # ✅ Compute Yearly Savings for Non-Monthly Expenses
+            non_monthly_expenses = input_data.get("Non Monthly Expenses", {})
+            for category, details in non_monthly_expenses.items():
+                yearly_savings[category] = yearly_savings.get(category, 0) + sum(
+                    int(details.get(week, 0)) for week in details if "Week" in week
+                )
 
-            # Calculate Total Savings (based on 'Goals' section)
-            total_savings = 0
-            goals_data = input_data.get('Goals', {})
-            
-            print("goals_data")
-            print(goals_data)
+        # ✅ Update Spent Values (only if provided)
+        for category, spent_amount in updated_spent_values.items():
+            spent_values[category] = spent_amount
 
-            # Check if goals_data is a dictionary or list
-            if isinstance(goals_data, dict):
-                # If it's a dictionary, iterate through it
-                for goal, weeks in goals_data.items():
-                    for week, amount in weeks.items():
-                        try:
-                            if isinstance(amount, str) and amount.strip():
-                                total_savings += float(amount)
-                            elif isinstance(amount, (int, float)):  # If amount is already numeric
-                                total_savings += amount
-                        except ValueError:
-                            print(f"Skipping invalid goal amount: {amount}")
-            elif isinstance(goals_data, list):
-                # If it's a list, iterate through the elements (assuming the structure of list)
-                for item in goals_data:
-                    # If the list items themselves contain the amount data in a particular structure,
-                    # adjust here accordingly. Below is just an example.
-                    for week_data in item.get('weeks', []):  # Assuming each item has a 'weeks' field
-                        try:
-                            amount = week_data.get('amount', 0)
-                            if isinstance(amount, str) and amount.strip():
-                                total_savings += float(amount)
-                            elif isinstance(amount, (int, float)):  # If amount is already numeric
-                                total_savings += amount
-                        except ValueError:
-                            print(f"Skipping invalid goal amount: {amount}")
-            else:
-                print("Unexpected structure for 'Goals'. It should be either a dictionary or a list.")
+        # ✅ Compute This Month's Ending Balance
+        current_ending_balance = prev_ending_balance + month_income - month_expenses
 
-            # Cumulative Totals (Adding previous month's totals to current month totals)
-            cumulative_income += total_income
-            cumulative_expenses += total_expenses
-            cumulative_savings += total_savings
-            
-            #Calculation of Total Ratios
-            
-            exp_ratio_total = total_expenses/total_income
-            savings_ratio_total = total_savings/total_income
-            slack_ratio_total = final_week_balance/total_income
-            exp_ratio_cumu = cumulative_expenses/cumulative_income
-            savings_ratio_cumu = cumulative_expenses/cumulative_income
-            slack_ratio_cumu = final_week_balance/cumulative_income
+        # ✅ Compute Ratios
+        expense_ratio = (month_expenses / month_income) * 100 if month_income > 0 else 0
+        savings_ratio = (month_savings / month_income) * 100 if month_income > 0 else 0
+        slack_ratio = (current_ending_balance / month_income) * 100 if month_income > 0 else 0
 
+        expense_ratio_c = (cumulative_expenses / cumulative_income) * 100 if cumulative_income > 0 else 0
+        savings_ratio_c = (cumulative_savings / cumulative_income) * 100 if cumulative_income > 0 else 0
+        slack_ratio_c = (current_ending_balance / cumulative_income) * 100 if cumulative_income > 0 else 0
 
-            # Add data for the current record's month_year
-            print(f"Month Year: {record['month_year']}")
-            print(f"Total Income: {total_income}")
-            print(f"Total Expenses: {total_expenses}")
-            print(f"Total Savings: {total_savings}")
-            print(f"Cumulative Income: {cumulative_income}")
-            print(f"Cumulative Expenses: {cumulative_expenses}")
-            print(f"Cumulative Savings: {cumulative_savings}")
+        # ✅ Compute Balances
+        yearly_savings_list = [
+            {
+                "name": category,
+                "yearly_savings": yearly_savings.get(category, 0),
+                "spent": spent_values.get(category, 0),
+                "balance": yearly_savings.get(category, 0) - spent_values.get(category, 0)
+            }
+            for category in yearly_savings.keys()
+        ]
 
-        # Return the summarized result
+        # ✅ Save updated spent values inside `"Non Monthly Expenses"`
+        if updated_spent_values:
+            update_expression = "SET #NME_Spent = :spent"
+            expression_attribute_names = {"#NME_Spent": "Non Monthly Expenses Spent"}  
+            expression_attribute_values = {":spent": spent_values}
+
+            table.update_item(
+                Key={'user_name': user_name, 'month_year': month_year},
+                UpdateExpression=update_expression,
+                ExpressionAttributeNames=expression_attribute_names,
+                ExpressionAttributeValues=expression_attribute_values
+            )
+
+        # ✅ Return Updated Summary with Yearly Savings
         summary = {
-            'totalIncome': total_income,
-            'totalExpenses': total_expenses,
-            'totalSavings': total_savings,
-            'cumulativeIncome': cumulative_income,
-            'cumulativeExpenses': cumulative_expenses,
-            'cumulativeSavings': cumulative_savings,
-            'totalExpenseRatio': exp_ratio_total,
-            'totalSavingsRatio': savings_ratio_total,
-            'totalSlackRatio': slack_ratio_total,
-            'cumulativeExpenseRatio': exp_ratio_cumu,
-            'cumulativeSavingsRatio': savings_ratio_cumu,
-            'cumulativeSlackRatio': slack_ratio_cumu,
+            "totalIncome": month_income,
+            "totalExpenses": month_expenses,
+            "totalSavings": month_savings,
+            "startingBalance": prev_ending_balance,
+            "endingBalance": current_ending_balance,
+            "cumulativeIncome": cumulative_income,
+            "cumulativeExpenses": cumulative_expenses,
+            "cumulativeSavings": cumulative_savings,
+            "expenseRatio": expense_ratio,
+            "savingsRatio": savings_ratio,
+            "slackRatio": slack_ratio,
+            "expenseRatioC": expense_ratio_c,
+            "savingsRatioC": savings_ratio_c,
+            "slackRatioC": slack_ratio_c,
+            "yearlySavings": yearly_savings_list
+        }
+
+        return JsonResponse(summary)
+
+    return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+
+
+# Function to calculate the summary to be displayed in the Financial Flow page
+@csrf_exempt
+def summary_finflow_BKP(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        user_name = data.get("username")
+        month_year = data.get("month_year")
+
+        if not user_name or not month_year:
+            return JsonResponse({'error': 'Username and month_year are required'}, status=400)
+
+        aws_access_key_id_e = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_access_key_e = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        dynamodb = boto3.resource('dynamodb',
+                                  region_name=os.getenv('AWS_REGION'),
+                                  aws_access_key_id=aws_access_key_id_e,
+                                  aws_secret_access_key=aws_secret_access_key_e)
+        table = dynamodb.Table('financial_flow')
+
+        # ✅ Step 1: Fetch All Past Data Up to the Current Month
+        response = table.query(
+            KeyConditionExpression=Key("user_name").eq(user_name) & Key("month_year").lte(month_year),
+            ScanIndexForward=True  # Ensures data is sorted by month
+        )
+
+        records = response.get("Items", [])
+
+        # ✅ Step 2: Initialize cumulative totals
+        cumulative_income = 0
+        cumulative_expenses = 0
+        cumulative_savings = 0
+        prev_ending_balance = 0  # Default value for the first month's starting balance
+
+        # ✅ Step 3: Loop through all records to calculate cumulative totals
+        for record in records:
+            input_data = record.get("input_data", {})
+
+            # ✅ Calculate income, expenses, and savings for each month
+            month_income = sum(float(amount) for amount in input_data.get("Income", {}).get("Paycheck", {}).values() if amount.strip())
+            month_expenses = sum(float(amount) for section in ["Spending Expenses", "Bills", "Non Monthly Expenses"]
+                                 for field in input_data.get(section, {}).values()
+                                 for amount in field.values() if isinstance(amount, str) and amount.strip())
+            month_savings = sum(float(amount) for goal_data in input_data.get("Goals", {}).values()
+                                for amount in goal_data.values() if isinstance(amount, str) and amount.strip())
+
+            # ✅ Update cumulative totals
+            cumulative_income += month_income
+            cumulative_expenses += month_expenses
+            cumulative_savings += month_savings
+
+            # ✅ Extract previous month's ending balance
+            ending_balance_data = input_data.get("EndingBalance", {})
+            if ending_balance_data:
+                try:
+                    final_week = max(ending_balance_data.keys(), key=lambda k: int(k.split()[-1]))  # Get last week's balance
+                    prev_ending_balance = float(ending_balance_data[final_week]) if isinstance(ending_balance_data[final_week], str) else 0
+                except ValueError:
+                    prev_ending_balance = 0  # If parsing fails, use 0
+
+        # ✅ Step 4: Compute This Month's Ending Balance
+        current_ending_balance = prev_ending_balance + month_income - month_expenses
+
+        # ✅ Step 5: Return the Updated Summary Data with Cumulative Totals
+        
+        expense_ratio = (month_expenses/month_income)*100
+        savings_ratio = (month_savings/month_income)*100
+        slack_ratio = (current_ending_balance/month_income)*100
+        
+        expense_ratio_c = (cumulative_expenses/cumulative_income)*100
+        savings_ratio_c = (cumulative_savings/cumulative_income)*100
+        slack_ratio_c = (current_ending_balance/cumulative_income)*100
+        
+        summary = {
+            "totalIncome": month_income,
+            "totalExpenses": month_expenses,
+            "totalSavings": month_savings,
+            "startingBalance": prev_ending_balance,  # Ensure First Week Uses Last Week’s Balance
+            "endingBalance": current_ending_balance,  # Update the New Ending Balance
+            "cumulativeIncome": cumulative_income,  # ✅ Cumulative Total Income
+            "cumulativeExpenses": cumulative_expenses,  # ✅ Cumulative Total Expenses
+            "cumulativeSavings": cumulative_savings,  # ✅ Cumulative Total Savings
+            "expenseRatio": expense_ratio,
+            "savingsRatio": savings_ratio,
+            "slackRatio": slack_ratio,
+            "expenseRatioC": expense_ratio_c,
+            "savingsRatioC": savings_ratio_c,
+            "slackRatioC": slack_ratio_c,
             
         }
 
         return JsonResponse(summary)
 
-        # if 'Item' in response:
-            # return JsonResponse(response['Item'])
-        # else:
-            # return JsonResponse({'error': 'User not found'}, status=404)
-    else:
-        return JsonResponse({'error': 'Invalid request method'}, status=400)
+    return JsonResponse({'error': 'Invalid request method'}, status=400)
 
+
+def get_previous_month(month_year):
+    """ Helper function to get the previous month in 'Month YYYY' format """
+    from datetime import datetime
+    from dateutil.relativedelta import relativedelta
+
+    try:
+        date_obj = datetime.strptime(month_year, "%B %Y")
+        prev_month = date_obj - relativedelta(months=1)
+        return prev_month.strftime("%B %Y")
+    except ValueError:
+        return None
 
 
 
